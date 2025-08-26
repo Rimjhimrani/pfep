@@ -6,5 +6,3 @@ openpyxl
 xlsxwriter
 xlrd
 pyarrow
-io
-math
