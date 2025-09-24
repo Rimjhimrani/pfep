@@ -86,7 +86,6 @@ def validate_and_parse_pfep(df):
         - A list of detected 'qty_per_vehicle' column names in internal format.
         - A dictionary of detected vehicle configurations (name and original column name).
     """
-    required_static_cols = {col for col in BASE_TEMPLATE_COLUMNS if '#' not in col}
     uploaded_cols = set(df.columns)
 
     # Check for core required columns
@@ -297,6 +296,39 @@ class ComprehensiveInventoryProcessor:
         self.data['TOTAL'] = self.data[qty_cols].sum(axis=1) if qty_cols else 0
         self.data['net_daily_consumption'] = self.data[daily_cols].sum(axis=1) if daily_cols else 0
         st.success("Consumption calculated.")
+        return self.data
+
+    def recalculate_for_modify(self):
+        st.subheader("Recalculating Consumption-Dependent Values")
+
+        # Lifespan - depends on net_daily_consumption which should be calculated right before calling this
+        net_daily = pd.to_numeric(self.data['net_daily_consumption'], errors='coerce')
+        if 'qty_per_pack_prim' in self.data.columns:
+            qty_prim = pd.to_numeric(self.data['qty_per_pack_prim'], errors='coerce')
+            self.data['prim_pack_lifespan'] = np.divide(qty_prim, net_daily, out=np.full_like(qty_prim, np.nan, dtype=float), where=net_daily!=0)
+        if 'qty_per_pack' in self.data.columns:
+            qty_sec = pd.to_numeric(self.data['qty_per_pack'], errors='coerce')
+            self.data['sec_pack_lifespan'] = np.divide(qty_sec, net_daily, out=np.full_like(qty_sec, np.nan, dtype=float), where=net_daily!=0)
+        st.write("   ...Package lifespans updated.")
+
+        # Inventory Norms (QTY/INR parts only)
+        # 'RM IN DAYS' should already exist from the initial PFEP creation/upload
+        if 'RM IN DAYS' in self.data.columns and 'net_daily_consumption' in self.data.columns:
+            self.data['RM IN QTY'] = self.data['RM IN DAYS'] * self.data['net_daily_consumption']
+            if 'unit_price' in self.data.columns:
+                 self.data['RM IN INR'] = self.data['RM IN QTY'] * pd.to_numeric(self.data.get('unit_price'), errors='coerce')
+
+            if 'qty_per_pack' in self.data.columns:
+                qty_per_pack = pd.to_numeric(self.data['qty_per_pack'], errors='coerce').fillna(1).replace(0, 1)
+                self.data['NO OF SEC. PACK REQD.'] = np.ceil(self.data['RM IN QTY'] / qty_per_pack)
+                if 'packing_factor' in self.data.columns:
+                    packing_factor = pd.to_numeric(self.data['packing_factor'], errors='coerce').fillna(1)
+                    self.data['NO OF SEC REQ. AS PER PF'] = np.ceil(self.data['NO OF SEC. PACK REQD.'] * packing_factor)
+            st.write("   ...Inventory quantities (RM Qty, INR, Packs) updated.")
+        else:
+            st.warning("Could not recalculate inventory norms because 'RM IN DAYS' or consumption data was missing.")
+        
+        st.success("✅ Consumption-dependent fields recalculated.")
         return self.data
 
     def run_family_classification(self):
@@ -566,7 +598,7 @@ def render_review_step(step_name, internal_key, next_stage):
 def main():
     st.title("🏭 PFEP (Plan For Each Part) ANALYSER")
 
-    for key in ['app_stage', 'master_df', 'qty_cols', 'final_report', 'processor', 'all_files', 'vehicle_configs', 'pincode']:
+    for key in ['app_stage', 'master_df', 'qty_cols', 'final_report', 'processor', 'all_files', 'vehicle_configs', 'pincode', 'workflow_mode']:
         if key not in st.session_state:
             st.session_state[key] = None if key != 'app_stage' else 'welcome'
     
@@ -575,10 +607,12 @@ def main():
         col1, col2 = st.columns(2)
         with col1:
             if st.button("🚀 Create New PFEP", use_container_width=True, type="primary"):
+                st.session_state.workflow_mode = 'create'
                 st.session_state.app_stage = 'upload'
                 st.rerun()
         with col2:
             if st.button("🔄 Modify Existing PFEP", use_container_width=True):
+                st.session_state.workflow_mode = 'modify'
                 st.session_state.app_stage = 'modify_upload'
                 st.rerun()
 
@@ -660,18 +694,18 @@ def main():
                 st.rerun()
 
     if st.session_state.app_stage == "configure":
-        st.header("Step 2: Configure Daily Consumption")
+        header_text = "Step 2: Modify Daily Production Plan" if st.session_state.workflow_mode == 'modify' else "Step 2: Configure Daily Consumption"
+        info_text = "Modify the daily production for each vehicle type to recalculate the PFEP." if st.session_state.workflow_mode == 'modify' else "Provide a name and daily production for each detected vehicle type."
+        
+        st.header(header_text)
         if not st.session_state.qty_cols:
             st.warning("No 'Quantity per Vehicle' columns detected. Consumption will be zero.")
             st.session_state.qty_cols = []
         else:
-            st.info("Provide a name and daily production for each detected vehicle type.")
+            st.info(info_text)
         
-        # Initialize vehicle_configs if it's not already set (for the 'modify' path)
         if st.session_state.vehicle_configs is None:
-            st.session_state.vehicle_configs = []
-            for i, col_name in enumerate(st.session_state.qty_cols):
-                 st.session_state.vehicle_configs.append({"name": f"Vehicle Type {i+1}", "multiplier": 1.0})
+            st.session_state.vehicle_configs = [{"name": f"Vehicle Type {i+1}", "multiplier": 1.0} for i, _ in enumerate(st.session_state.qty_cols)]
 
         vehicle_configs_input = []
         for i, col_name in enumerate(st.session_state.qty_cols):
@@ -682,13 +716,22 @@ def main():
             multiplier = cols[1].number_input("Daily Production", min_value=0.0, value=default_config.get('multiplier', 1.0), step=0.1, key=f"mult_{i}")
             vehicle_configs_input.append({"name": name, "multiplier": multiplier})
         
-        if st.button("🚀 Run Full Analysis"):
+        button_text = "🚀 Recalculate PFEP" if st.session_state.workflow_mode == 'modify' else "🚀 Run Full Analysis"
+        if st.button(button_text):
             st.session_state.vehicle_configs = vehicle_configs_input
             processor = ComprehensiveInventoryProcessor(st.session_state.master_df)
+            
             st.session_state.master_df = processor.calculate_dynamic_consumption(st.session_state.qty_cols, [c.get('multiplier', 0) for c in vehicle_configs_input])
             st.session_state.processor = processor
-            st.session_state.app_stage = "process_family"
-            st.rerun()
+
+            if st.session_state.workflow_mode == 'modify':
+                with st.spinner("Recalculating consumption-based fields..."):
+                    st.session_state.master_df = processor.recalculate_for_modify()
+                st.session_state.app_stage = "generate_report"
+                st.rerun()
+            else: # 'create' workflow
+                st.session_state.app_stage = "process_family"
+                st.rerun()
 
     processing_steps = [
         {"process_stage": "process_family", "review_stage": "review_family", "method": "run_family_classification", "key": "family", "name": "Family Classification"},
