@@ -1,8 +1,6 @@
 streamlit
 pandas
 numpy
-plotly
-openpyxl
+geopy
 xlsxwriter
-xlrd
-pyarrow
+openpyxl
