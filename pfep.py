@@ -598,12 +598,10 @@ def render_review_step(step_name, internal_key, next_stage):
 def main():
     st.title("🏭 PFEP (Plan For Each Part) ANALYSER")
 
-    # Initialize session state variables
     for key in ['app_stage', 'master_df', 'qty_cols', 'final_report', 'processor', 'all_files', 'vehicle_configs', 'pincode', 'workflow_mode']:
         if key not in st.session_state:
             st.session_state[key] = None if key != 'app_stage' else 'welcome'
     
-    # --- Stage: Welcome ---
     if st.session_state.app_stage == "welcome":
         st.header("What would you like to do?")
         col1, col2 = st.columns(2)
@@ -618,7 +616,6 @@ def main():
                 st.session_state.app_stage = 'modify_upload'
                 st.rerun()
 
-    # --- Stage: Modify PFEP Upload ---
     if st.session_state.app_stage == "modify_upload":
         st.header("Step 1: Upload and Validate Existing PFEP")
         st.info("Upload your existing PFEP Excel file. The application will check if the headers match the standard structure before proceeding.")
@@ -640,7 +637,6 @@ def main():
                             st.session_state.app_stage = "configure"
                             st.rerun()
 
-    # --- Stage: Create New PFEP Upload ---
     if st.session_state.app_stage == "upload":
         st.header("Step 1: Upload Data Files to Create a New PFEP")
         uploaded_files = {}
@@ -673,7 +669,6 @@ def main():
                         st.error("Failed to consolidate BOM data. Please check your files.")
                 st.rerun()
 
-    # --- Stage: BOM Selection (Create-only) ---
     if st.session_state.app_stage == "bom_selection":
         st.header("Step 1.5: BOM Base Selection")
         st.info("You uploaded both PBOM and MBOM files. Choose the base for the PFEP analysis.")
@@ -698,12 +693,9 @@ def main():
                 st.session_state.app_stage = "configure"
                 st.rerun()
 
-    # --- Stage: Configure Consumption (Shared by Create & Modify) ---
     if st.session_state.app_stage == "configure":
-        # Dynamic UI text based on workflow
         header_text = "Step 2: Modify Daily Production Plan" if st.session_state.workflow_mode == 'modify' else "Step 2: Configure Daily Consumption"
         info_text = "Modify the daily production for each vehicle type to recalculate the PFEP." if st.session_state.workflow_mode == 'modify' else "Provide a name and daily production for each detected vehicle type."
-        button_text = "🚀 Recalculate PFEP" if st.session_state.workflow_mode == 'modify' else "🚀 Run Full Analysis"
         
         st.header(header_text)
         if not st.session_state.qty_cols:
@@ -724,25 +716,23 @@ def main():
             multiplier = cols[1].number_input("Daily Production", min_value=0.0, value=default_config.get('multiplier', 1.0), step=0.1, key=f"mult_{i}")
             vehicle_configs_input.append({"name": name, "multiplier": multiplier})
         
+        button_text = "🚀 Recalculate PFEP" if st.session_state.workflow_mode == 'modify' else "🚀 Run Full Analysis"
         if st.button(button_text):
             st.session_state.vehicle_configs = vehicle_configs_input
             processor = ComprehensiveInventoryProcessor(st.session_state.master_df)
             
-            # This is the crucial step: recalculating consumption based on new inputs
             st.session_state.master_df = processor.calculate_dynamic_consumption(st.session_state.qty_cols, [c.get('multiplier', 0) for c in vehicle_configs_input])
             st.session_state.processor = processor
 
-            # Divert workflow based on mode
             if st.session_state.workflow_mode == 'modify':
                 with st.spinner("Recalculating consumption-based fields..."):
                     st.session_state.master_df = processor.recalculate_for_modify()
-                st.session_state.app_stage = "generate_report" # Skip to the end
+                st.session_state.app_stage = "generate_report"
                 st.rerun()
             else: # 'create' workflow
-                st.session_state.app_stage = "process_family" # Go to the first processing step
+                st.session_state.app_stage = "process_family"
                 st.rerun()
 
-    # --- Stages: Processing & Review Steps (Create-only) ---
     processing_steps = [
         {"process_stage": "process_family", "review_stage": "review_family", "method": "run_family_classification", "key": "family", "name": "Family Classification"},
         {"process_stage": "process_size", "review_stage": "review_size", "method": "run_size_classification", "key": "size_classification", "name": "Size Classification"},
@@ -767,7 +757,6 @@ def main():
         if st.session_state.app_stage == step['review_stage']:
             render_review_step(step['name'], step['key'], next_stage)
 
-    # --- Stage: Generate Report (Shared by Create & Modify) ---
     if st.session_state.app_stage == "generate_report":
         report_data = create_formatted_excel_output(st.session_state.master_df, st.session_state.vehicle_configs)
         st.session_state.final_report = report_data
@@ -776,7 +765,6 @@ def main():
         st.session_state.app_stage = "download"
         st.rerun()
 
-    # --- Stage: Download Report (Shared by Create & Modify) ---
     if st.session_state.app_stage == "download":
         st.header("Step 4: Download Final Report")
         st.download_button(label="📥 Download Structured Inventory Data Final.xlsx", data=st.session_state.final_report, file_name='structured_inventory_data_final.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
