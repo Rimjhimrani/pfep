@@ -282,7 +282,11 @@ def finalize_master_df(base_bom_df, supplementary_dfs):
         
         final_df.drop_duplicates(subset=['part_id'], keep='first', inplace=True)
         
-        detected_qty_cols = sorted([col for col in final_df.columns if 'qty_veh_temp_' in col])
+        # --- FIX IS HERE ---
+        # Cast each column name to a string to prevent a TypeError if a column name is numeric.
+        detected_qty_cols = sorted([col for col in final_df.columns if 'qty_veh_temp_' in str(col)])
+        # --- END OF FIX ---
+
         rename_map = {old_name: f"qty_veh_{i}" for i, old_name in enumerate(detected_qty_cols)}
         final_df.rename(columns=rename_map, inplace=True)
         final_qty_cols = sorted(rename_map.values())
