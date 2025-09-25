@@ -34,24 +34,53 @@ INTERNAL_TO_PFEP_NEW_COLS = { 'family': 'FAMILY', 'part_classification': 'PART C
 FAMILY_KEYWORD_MAPPING = { "ADAPTOR": ["ADAPTOR", "ADAPTER"], "Beading": ["BEADING"], "Electrical": ["BATTERY", "HVPDU", "ELECTRICAL", "INVERTER", "SENSOR", "DC", "COMPRESSOR", "TMCS", "COOLING", "BRAKE SIGNAL", "VCU", "VEHICLE CONTROL", "EVCC", "EBS ECU", "ECU", "CONTROL UNIT", "SIGNAL", "TRANSMITTER", "TRACTION", "HV", "KWH", "EBS", "SWITCH", "HORN"], "Electronics": ["DISPLAY", "APC", "SCREEN", "MICROPHONE", "CAMERA", "SPEAKER", "DASHBOARD", "ELECTRONICS", "SSD", "WOODWARD", "FDAS", "BDC", "GEN-2", "SENSOR", "BUZZER"], "Wheels": ["WHEEL", "TYRE", "TIRE", "RIM"], "Harness": ["HARNESS", "CABLE"], "Mechanical": ["PUMP", "SHAFT", "LINK", "GEAR", "ARM"], "Hardware": ["NUT", "BOLT", "SCREW", "WASHER", "RIVET", "M5", "M22", "M12", "CLAMP", "CLIP", "CABLE TIE", "DIN", "ZFP"], "Bracket": ["BRACKET", "BRKT", "BKT", "BRCKT"], "ASSY": ["ASSY"], "Sticker": ["STICKER", "LOGO", "EMBLEM"], "Suspension": ["SUSPENSION"], "Tank": ["TANK"], "Tape": ["TAPE", "REFLECTOR", "COLOUR"], "Tool Kit": ["TOOL KIT"], "Valve": ["VALVE"], "Hose": ["HOSE"], "Insulation": ["INSULATION"], "Interior & Exterior": ["ROLLER", "FIRE", "HAMMER"], "L-angle": ["L-ANGLE"], "Lamp": ["LAMP"], "Lock": ["LOCK"], "Lubricants": ["GREASE", "LUBRICANT"], "Medical": ["MEDICAL", "FIRST AID"], "Mirror": ["MIRROR", "ORVM"], "Motor": ["MOTOR"], "Mounting": ["MOUNT", "MTG", "MNTG", "MOUNTED"], "Oil": ["OIL"], "Panel": ["PANEL"], "Pillar": ["PILLAR"], "Pipe": ["PIPE", "TUBE", "SUCTION", "TUBULAR"], "Plate": ["PLATE"], "Plywood": ["FLOORING", "PLYWOOD", "EPGC"], "Profile": ["PROFILE", "ALUMINIUM"], "Rail": ["RAIL"], "Rubber": ["RUBBER", "GROMMET", "MOULDING"], "Seal": ["SEAL"], "Seat": ["SEAT"], "ABS Cover": ["ABS COVER"], "AC": ["AC"], "ACP Sheet": ["ACP SHEET"], "Aluminium": ["ALUMINIUM", "ALUMINUM"], "AXLE": ["AXLE"], "Bush": ["BUSH"], "Chassis": ["CHASSIS"], "Dome": ["DOME"], "Door": ["DOOR"], "Filter": ["FILTER"], "Flap": ["FLAP"], "FRP": ["FRP", "FACIA"], "Glass": ["GLASS", "WINDSHIELD", "WINDSHILED"], "Handle": ["HANDLE", "HAND", "PLASTIC"], "HATCH": ["HATCH"], "HDF Board": ["HDF"] }
 CATEGORY_PRIORITY_FAMILIES = {"ACP Sheet", "ADAPTOR", "Bracket", "Bush", "Flap", "Handle", "Beading", "Lubricants", "Panel", "Pillar", "Rail", "Seal", "Sticker", "Valve"}
 BASE_WAREHOUSE_MAPPING = { "ABS Cover": "HRR", "ADAPTOR": "MEZ B-01(A)", "Beading": "HRR", "AXLE": "FLOOR", "Bush": "HRR", "Chassis": "FLOOR", "Dome": "MEZ C-02(B)", "Door": "MRR(C-01)", "Electrical": "HRR", "Filter": "CRL", "Flap": "MEZ C-02", "Insulation": "MEZ C-02(B)", "Interior & Exterior": "HRR", "L-angle": "MEZ B-01(A)", "Lamp": "CRL", "Lock": "CRL", "Lubricants": "HRR", "Medical": "HRR", "Mirror": "HRR", "Motor": "HRR", "Mounting": "HRR", "Oil": "HRR", "Panel": "MEZ C-02", "Pillar": "MEZ C-02", "Pipe": "HRR", "Plate": "HRR", "Profile": "HRR", "Rail": "CTR(C-01)", "Seal": "HRR", "Seat": "MRR(C-01)", "Sticker": "MEZ B-01(A)", "Suspension": "MRR(C-01)", "Tank": "HRR", "Tool Kit": "HRR", "Valve": "CRL", "Wheels": "HRR", "Hardware": "MEZ B-02(A)", "Glass": "MRR(C-01)", "Harness": "HRR", "Hose": "HRR", "Aluminium": "HRR", "ACP Sheet": "MEZ C-02(B)", "Handle": "HRR", "HATCH": "HRR", "HDF Board": "MRR(C-01)", "FRP": "CTR", "Others": "HRR" }
-GEOLOCATOR = Nominatim(user_agent="inventory_distance_calculator_streamlit_v9", timeout=10)
+GEOLOCATOR = Nominatim(user_agent="inventory_distance_calculator_streamlit_v10", timeout=10)
 
 # --- 2. CORE DATA PROCESSING FUNCTIONS ---
 @st.cache_data
 def get_lat_lon(pincode, country="India", city="", state="", retries=3, backoff_factor=2):
+    """
+    More robustly geocodes a pincode by trying multiple query formats.
+    """
     pincode_str = str(pincode).strip().split('.')[0]
-    if not pincode_str.isdigit() or int(pincode_str) == 0: return (None, None)
-    query = f"{pincode_str}, {city}, {state}, {country}" if city and state else f"{pincode_str}, {country}"
+    # Basic validation for Indian pincodes to avoid unnecessary API calls
+    if not (pincode_str.isdigit() and len(pincode_str) == 6):
+        return (None, None)
+
+    # Define a list of query methods to attempt in order of preference.
+    # Structured queries are generally more reliable than free-form strings.
+    queries_to_try = [
+        {'postalcode': pincode_str, 'city': city, 'state': state, 'country': country},
+        {'postalcode': pincode_str, 'state': state, 'country': country},
+        {'postalcode': pincode_str, 'country': country},
+        f"{pincode_str}, {city}, {state}, {country}",  # Fallback to original string query
+        f"{pincode_str}, {country}"
+    ]
+
     for attempt in range(retries):
-        try:
-            time.sleep(1)
-            location = GEOLOCATOR.geocode(query)
-            if location: return (location.latitude, location.longitude)
-        except Exception as e:
-            st.warning(f"Geocoding exception for '{pincode_str}': {e}")
-            if attempt < retries - 1: time.sleep(backoff_factor * (attempt + 1))
-            continue
+        # Respect the 1 request/sec rate limit for Nominatim
+        time.sleep(1)
+        for query in queries_to_try:
+            try:
+                location = GEOLOCATOR.geocode(query, exactly_one=True, timeout=10)
+                if location:
+                    # Success! Return the coordinates.
+                    return (location.latitude, location.longitude)
+            except Exception as e:
+                # This exception might be a timeout or a service error.
+                # We'll log it for debugging but let the loop continue to the next query/attempt.
+                print(f"Geocoding attempt {attempt+1} for query '{query}' failed with error: {e}") # Log to console for dev
+                break # If one attempt fails with an exception, break to the backoff sleep
+
+        # If the inner loop completed without success, wait before the next retry
+        if attempt < retries - 1:
+            wait_time = backoff_factor * (attempt + 1)
+            time.sleep(wait_time)
+
+    # If all retries and all query formats have failed, issue a single, clear warning.
+    st.warning(f"Geocoding failed for pincode '{pincode_str}' (City: {city}, State: {state}). Distances for this vendor will be blank. Please verify the address details.")
     return (None, None)
+
 
 def get_distance_code(distance):
     if pd.isna(distance): return None
