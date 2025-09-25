@@ -166,6 +166,7 @@ def _consolidate_bom_list(bom_list):
     return master
 
 def _merge_supplementary_df(main_df, new_df):
+    """Merges supplementary data based on 'part_id'."""
     if 'part_id' not in new_df.columns: return main_df
     
     main_df['part_id'] = main_df['part_id'].astype(str)
@@ -183,6 +184,35 @@ def _merge_supplementary_df(main_df, new_df):
     main_df = main_df.join(new_df[new_cols])
     
     return main_df.reset_index()
+
+def _merge_vendor_df(main_df, vendor_df):
+    """Merges vendor master data based on 'vendor_code'."""
+    if 'vendor_code' not in main_df.columns or 'vendor_code' not in vendor_df.columns:
+        st.warning("Skipping a vendor file merge: 'vendor_code' column not found in both the base BOM and the vendor master file.")
+        return main_df
+
+    # Prepare keys for merging
+    main_df['vendor_code'] = main_df['vendor_code'].astype(str)
+    vendor_df['vendor_code'] = vendor_df['vendor_code'].astype(str)
+    
+    # In vendor_df, keep only the first entry for each vendor code to prevent data duplication
+    vendor_df.drop_duplicates(subset=['vendor_code'], keep='first', inplace=True)
+    
+    # Perform a left merge. Suffix '_existing' is added to conflicting columns from main_df.
+    merged_df = pd.merge(main_df, vendor_df, on='vendor_code', how='left', suffixes=('_existing', ''))
+    
+    # Coalesce the data: prioritize data from vendor_df, but fill any gaps with original data from main_df
+    for col in vendor_df.columns:
+        if col == 'vendor_code':
+            continue
+        
+        existing_col_name = f"{col}_existing"
+        if existing_col_name in merged_df.columns:
+            # Prioritize the new data, fill NaN with existing data, then drop the redundant existing column
+            merged_df[col] = merged_df[col].fillna(merged_df[existing_col_name])
+            merged_df.drop(columns=[existing_col_name], inplace=True)
+            
+    return merged_df
 
 def load_all_files(uploaded_files):
     file_types = { "pbom": [], "mbom": [], "part_attribute": [], "packaging": [], "vendor_master": [] }
@@ -209,10 +239,17 @@ def load_all_files(uploaded_files):
 def finalize_master_df(base_bom_df, supplementary_dfs):
     with st.spinner("Consolidating final dataset..."):
         final_df = base_bom_df
-        for df_list in supplementary_dfs:
-            for df in df_list:
-                if df is not None and 'part_id' in df.columns:
-                    final_df = _merge_supplementary_df(final_df, df)
+        part_attr_dfs, vendor_master_dfs, packaging_dfs = supplementary_dfs
+
+        # Process Part Attribute and Packaging files using 'part_id' as the key
+        for df in part_attr_dfs + packaging_dfs:
+            if df is not None and 'part_id' in df.columns:
+                final_df = _merge_supplementary_df(final_df, df)
+
+        # Process Vendor Master files using 'vendor_code' as the key
+        for df in vendor_master_dfs:
+            if df is not None:
+                final_df = _merge_vendor_df(final_df, df)
         
         final_df.drop_duplicates(subset=['part_id'], keep='first', inplace=True)
         
