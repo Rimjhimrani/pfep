@@ -244,7 +244,10 @@ def _merge_vendor_df(main_df, vendor_df):
     return merged_df
 
 def load_all_files(uploaded_files):
+    # This dictionary will store the processed dataframes for the application logic
     file_types = { "pbom": [], "mbom": [], "part_attribute": [], "packaging": [], "vendor_master": [] }
+    # This dictionary will store the raw, unmodified dataframes for the final report
+    st.session_state['source_files_for_report'] = { "pbom": [], "mbom": [], "part_attribute": [], "packaging": [], "vendor_master": [] }
     
     with st.spinner("Processing uploaded files..."):
         for key, files in uploaded_files.items():
@@ -253,6 +256,10 @@ def load_all_files(uploaded_files):
             for f in file_list:
                 df = read_uploaded_file(f)
                 if df is not None:
+                    # Store a copy of the raw dataframe before any modifications
+                    st.session_state['source_files_for_report'][key].append(df.copy())
+
+                    # Now, proceed with processing the original dataframe
                     processed_df = find_and_rename_columns(df)
                     
                     if key == 'mbom' and 'supply_condition' in processed_df.columns:
@@ -282,10 +289,8 @@ def finalize_master_df(base_bom_df, supplementary_dfs):
         
         final_df.drop_duplicates(subset=['part_id'], keep='first', inplace=True)
         
-        # --- FIX IS HERE ---
         # Cast each column name to a string to prevent a TypeError if a column name is numeric.
         detected_qty_cols = sorted([col for col in final_df.columns if 'qty_veh_temp_' in str(col)])
-        # --- END OF FIX ---
 
         rename_map = {old_name: f"qty_veh_{i}" for i, old_name in enumerate(detected_qty_cols)}
         final_df.rename(columns=rename_map, inplace=True)
@@ -544,7 +549,7 @@ class ComprehensiveInventoryProcessor:
         st.success("✅ Automated warehouse location assignment complete.")
 
 # --- 4. UI AND REPORTING FUNCTIONS ---
-def create_formatted_excel_output(df, vehicle_configs):
+def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
     st.subheader("(G) Generating Formatted Excel Report")
     final_df = df.copy()
     rename_map = {**PFEP_COLUMN_MAP, **INTERNAL_TO_PFEP_NEW_COLS, 'TOTAL': 'TOTAL'}
@@ -572,9 +577,10 @@ def create_formatted_excel_output(df, vehicle_configs):
     final_df = final_df[final_template]
     final_df['SR.NO'] = range(1, len(final_df) + 1)
 
-    with st.spinner("Creating the final Excel report..."):
+    with st.spinner("Creating the final Excel workbook with all source files..."):
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            # --- Sheet 1: The main, formatted PFEP data ---
             workbook = writer.book
             h_gray = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'align': 'center', 'fg_color': '#D9D9D9', 'border': 1})
             s_orange = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#FDE9D9', 'border': 1})
@@ -615,8 +621,25 @@ def create_formatted_excel_output(df, vehicle_configs):
                 worksheet.write(1, col_num, value, h_gray)
             worksheet.set_column('A:A', 6); worksheet.set_column('B:C', 22); worksheet.set_column('D:ZZ', 18)
 
+            # --- Subsequent Sheets: Add all the source files ---
+            if source_files_dict:
+                for file_category, df_list in source_files_dict.items():
+                    if not df_list: continue # Skip if no files were uploaded for this category
+
+                    if len(df_list) == 1:
+                        # If only one file, use a clean name like "Source_Pbom"
+                        sheet_name = f"Source_{file_category.replace('_', ' ').title()}"
+                        sheet_name = sheet_name[:31] # Excel sheet name limit is 31 chars
+                        df_list[0].to_excel(writer, sheet_name=sheet_name, index=False)
+                    else:
+                        # If multiple files, number them: "Source_Pbom_1", "Source_Pbom_2"
+                        for i, source_df in enumerate(df_list):
+                            sheet_name = f"Source_{file_category.title()}_{i+1}"
+                            sheet_name = sheet_name[:31]
+                            source_df.to_excel(writer, sheet_name=sheet_name, index=False)
+
         processed_data = output.getvalue()
-    st.success(f"✅ Successfully created formatted Excel file!")
+    st.success(f"✅ Successfully created formatted Excel file with all source data!")
     return processed_data
 
 def render_review_step(step_name, internal_key, next_stage):
@@ -669,7 +692,7 @@ def main():
     st.title("🏭 PFEP (Plan For Each Part) ANALYSER")
 
     # Initialize session state variables
-    for key in ['app_stage', 'master_df', 'qty_cols', 'final_report', 'processor', 'all_files', 'vehicle_configs', 'pincode', 'workflow_mode']:
+    for key in ['app_stage', 'master_df', 'qty_cols', 'final_report', 'processor', 'all_files', 'vehicle_configs', 'pincode', 'workflow_mode', 'source_files_for_report']:
         if key not in st.session_state:
             st.session_state[key] = None if key != 'app_stage' else 'welcome'
     
@@ -699,9 +722,22 @@ def main():
         if uploaded_pfep is not None:
             if st.button("Validate and Proceed", type="primary"):
                 with st.spinner("Validating PFEP file structure..."):
-                    pfep_df = read_pfep_file(uploaded_pfep)
-                    if pfep_df is not None:
-                        parsed_df, qty_cols, vehicle_configs = validate_and_parse_pfep(pfep_df)
+                    # Read the file's content into memory to allow multiple reads
+                    uploaded_pfep_bytes = uploaded_pfep.getvalue()
+                    
+                    # Read 1: For processing with header on the second row
+                    pfep_df_for_process = read_pfep_file(io.BytesIO(uploaded_pfep_bytes))
+                    
+                    # Read 2: The raw file for the final report
+                    # Use a simple read_excel for the raw version, assuming standard header
+                    try:
+                        raw_pfep_df = pd.read_excel(io.BytesIO(uploaded_pfep_bytes))
+                        st.session_state['source_files_for_report'] = {'Original_PFEP': [raw_pfep_df]}
+                    except Exception as e:
+                        st.warning(f"Could not store the original PFEP for the final report due to a reading error: {e}")
+
+                    if pfep_df_for_process is not None:
+                        parsed_df, qty_cols, vehicle_configs = validate_and_parse_pfep(pfep_df_for_process)
                         if parsed_df is not None:
                             st.session_state.master_df = parsed_df
                             st.session_state.qty_cols = qty_cols
@@ -839,7 +875,7 @@ def main():
 
     # --- Stage: Generate Report (Shared by Create & Modify) ---
     if st.session_state.app_stage == "generate_report":
-        report_data = create_formatted_excel_output(st.session_state.master_df, st.session_state.vehicle_configs)
+        report_data = create_formatted_excel_output(st.session_state.master_df, st.session_state.vehicle_configs, source_files_dict=st.session_state.get('source_files_for_report'))
         st.session_state.final_report = report_data
         st.balloons()
         st.success("🎉 End-to-end process complete!")
