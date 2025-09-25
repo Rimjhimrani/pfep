@@ -223,6 +223,9 @@ def _merge_vendor_df(main_df, vendor_df):
     # Prepare keys for merging
     main_df['vendor_code'] = main_df['vendor_code'].astype(str)
     vendor_df['vendor_code'] = vendor_df['vendor_code'].astype(str)
+
+    # Store the original vendor columns to clean them up later
+    vendor_cols = [col for col in vendor_df.columns if col != 'vendor_code']
     
     # In vendor_df, keep only the first entry for each vendor code to prevent data duplication
     vendor_df.drop_duplicates(subset=['vendor_code'], keep='first', inplace=True)
@@ -240,6 +243,12 @@ def _merge_vendor_df(main_df, vendor_df):
             # Prioritize the new data, fill NaN with existing data, then drop the redundant existing column
             merged_df[col] = merged_df[col].fillna(merged_df[existing_col_name])
             merged_df.drop(columns=[existing_col_name], inplace=True)
+
+    # --- NEW LOGIC: Fill NaN with empty strings for a clean output ---
+    # This ensures that if a vendor code didn't match, the vendor-specific fields are blank, not 'NaN'.
+    for col in vendor_cols:
+        if col in merged_df.columns:
+            merged_df[col] = merged_df[col].fillna('')
             
     return merged_df
 
