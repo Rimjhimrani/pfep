@@ -306,51 +306,22 @@ def finalize_master_df(base_bom_df, supplementary_dfs):
 
 # --- 3. CLASSIFICATION AND PROCESSING CLASSES ---
 class PartClassificationSystem:
-    def __init__(self):
-        self.percentages = {'C': {'target': 60, 'tolerance': 5}, 'B': {'target': 25, 'tolerance': 2}, 'A': {'target': 12, 'tolerance': 2}, 'AA': {'target': 3, 'tolerance': 1}}
-        self.calculated_ranges = {}
-
-    def calculate_percentage_ranges(self, df, price_column):
-        valid_prices = pd.to_numeric(df[price_column], errors='coerce').dropna().sort_values()
-        if valid_prices.empty:
-            st.warning("No valid prices found to calculate part classification ranges.")
-            return
-        
-        total_valid_parts = len(valid_prices)
-        st.write(f"Calculating classification ranges from {total_valid_parts} valid prices...")
-        
-        ranges, current_idx = {}, 0
-        processing_order = ['C', 'B', 'A', 'AA']
-        
-        for class_name in processing_order:
-            details = self.percentages[class_name]
-            target_percent = details['target']
-            count = round(total_valid_parts * (target_percent / 100))
-            end_idx = min(current_idx + count - 1, total_valid_parts - 1)
-            
-            if current_idx <= end_idx:
-                min_val = valid_prices.iloc[current_idx]
-                max_val = valid_prices.iloc[end_idx]
-                ranges[class_name] = {'min': min_val, 'max': max_val}
-            
-            current_idx = end_idx + 1
-            
-        self.calculated_ranges = {k: ranges.get(k, {'min': 0, 'max': 0}) for k in self.percentages.keys()}
-        st.write("   Ranges calculated successfully.")
-
     def classify_part(self, unit_price):
-        if pd.isna(unit_price) or not isinstance(unit_price, (int, float)): return np.nan
-        if not self.calculated_ranges: return 'Unclassified'
-        
-        if unit_price >= self.calculated_ranges.get('AA', {'min': float('inf')})['min']: return 'AA'
-        if unit_price >= self.calculated_ranges.get('A', {'min': float('inf')})['min']: return 'A'
-        if unit_price >= self.calculated_ranges.get('B', {'min': float('inf')})['min']: return 'B'
-        return 'C'
+        """Classifies a single part based on fixed price ranges."""
+        if pd.isna(unit_price) or not isinstance(unit_price, (int, float, np.number)):
+            return np.nan
+        price = float(unit_price)
+        if price > 50000: return 'AA'
+        if 5000 <= price <= 50000: return 'A'
+        if 100 <= price < 5000: return 'B'
+        if price < 100: return 'C'
+        return np.nan
 
     def classify_all_parts(self, df, price_column):
-        self.calculate_percentage_ranges(df, price_column)
+        """Applies fixed-range classification to a DataFrame column."""
+        st.write("Classifying parts based on fixed price ranges (AA: >50k, A: 5k-50k, B: 100-5k, C: <100).")
         return df[price_column].apply(self.classify_part)
-        
+
 class ComprehensiveInventoryProcessor:
     def __init__(self, initial_data):
         self.data = initial_data.copy()
@@ -464,7 +435,7 @@ class ComprehensiveInventoryProcessor:
             st.warning("'unit_price' column not found. Skipping part classification.")
             return
         self.data['part_classification'] = self.classifier.classify_all_parts(self.data, 'unit_price')
-        st.success("✅ Percentage-based part classification complete.")
+        st.success("✅ Fixed-range part classification complete.")
 
     def run_packaging_classification(self):
         st.subheader("(D) Packaging Classification & Lifespan")
@@ -551,16 +522,20 @@ class ComprehensiveInventoryProcessor:
 # --- 4. UI AND REPORTING FUNCTIONS ---
 def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
     st.subheader("(G) Generating Formatted Excel Report")
+    
+    # --- 1. Prepare data and template columns ---
     final_df = df.copy()
     rename_map = {**PFEP_COLUMN_MAP, **INTERNAL_TO_PFEP_NEW_COLS, 'TOTAL': 'TOTAL'}
     
     qty_veh_cols, qty_veh_daily_cols = [], []
     vehicle_configs = vehicle_configs if isinstance(vehicle_configs, list) else []
+    daily_consumption_values = {}
     for i, config in enumerate(vehicle_configs):
         rename_map[f"qty_veh_{i}"] = config['name']
         rename_map[f"qty_veh_{i}_daily"] = f"{config['name']}_Daily"
         qty_veh_cols.append(config['name'])
         qty_veh_daily_cols.append(f"{config['name']}_Daily")
+        daily_consumption_values[config['name']] = config.get('multiplier', 0)
 
     final_df.rename(columns={k: v for k, v in rename_map.items() if k in final_df.columns}, inplace=True)
 
@@ -577,88 +552,72 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
     final_df = final_df[final_template]
     final_df['SR.NO'] = range(1, len(final_df) + 1)
 
+    # --- 2. Prepare dynamic data for the header ---
+    part_class_counts = df['part_classification'].value_counts().reindex(['AA', 'A', 'B', 'C']).fillna(0)
+    total_classified = part_class_counts.sum()
+    part_class_percentages = (part_class_counts / total_classified) if total_classified > 0 else part_class_counts
+    
     with st.spinner("Creating the final Excel workbook with all source files..."):
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            # --- 3. Setup Workbook and Formats ---
             workbook = writer.book
+            worksheet = workbook.add_worksheet('Master Data Sheet')
             
-            # --- Add Assumptions Sheet ---
-            assumptions_sheet = workbook.add_worksheet('Assumptions')
-            header_format = workbook.add_format({'bold': True, 'font_size': 14, 'bg_color': '#D9EAD3', 'border': 1})
-            subheader_format = workbook.add_format({'bold': True, 'font_size': 12, 'bg_color': '#FCE4D6', 'border': 1})
-            text_format = workbook.add_format({'text_wrap': True, 'valign': 'top', 'font_size': 11})
-            
-            assumptions_sheet.set_column('A:A', 30)
-            assumptions_sheet.set_column('B:B', 100)
-
-            assumptions_sheet.merge_range('A1:B1', 'Assumptions for PFEP Analysis', header_format)
-            
-            assumptions = [
-                ("General", [
-                    "The first valid entry found for a `part_id` or `vendor_code` across all uploaded supplementary files (Part Attribute, Packaging, Vendor Master) is used. Subsequent duplicates are ignored.",
-                    "In-house manufactured parts (identified by 'inhouse' in the 'supply_condition' column of an MBOM) are excluded from the analysis."
-                ]),
-                ("Family Classification", [
-                    "Families are assigned based on a predefined list of keywords and a priority system.",
-                    "Keywords are searched for within the 'PART DESCRIPTION' column.",
-                    "A list of 'priority families' is checked first. If a keyword for one of these families is found, it is assigned immediately.",
-                    "If no priority family is found, the system looks for the first keyword from the remaining families that appears earliest in the description.",
-                    "If no keywords are matched, the part is assigned to the 'Others' family."
-                ]),
-                ("Size Classification", [
-                    "Classification is based on the calculated volume (in cubic meters) and the maximum dimension (length, width, or height in mm).",
-                    "XL: Volume > 1.5 m³ OR Max Dimension > 1200 mm",
-                    "L: 0.5 m³ < Volume ≤ 1.5 m³ OR 750 mm < Max Dimension ≤ 1200 mm",
-                    "M: 0.05 m³ < Volume ≤ 0.5 m³ OR 150 mm < Max Dimension ≤ 750 mm",
-                    "S: All other cases."
-                ]),
-                ("Part Classification (ABC)", [
-                    "Classification is based on the unit price of the part, sorted in ascending order.",
-                    "The distribution follows a predefined percentage target:",
-                    " - C: Lowest 60% of parts by price.",
-                    " - B: Next 25% of parts.",
-                    " - A: Next 12% of parts.",
-                    " - AA: Top 3% of parts.",
-                    "Parts without a valid numeric unit price are left unclassified."
-                ]),
-                ("Packaging Classification", [
-                    "The 'ONE WAY/ RETURNABLE' status is determined by searching for keywords within the 'PRIMARY PACK TYPE' description.",
-                    "A predefined list of keywords (e.g., 'metallic pallet', 'trolley') determines 'Returnable' status.",
-                    "A separate list of keywords (e.g., 'carton box', 'polybag') determines 'One Way' status.",
-                    "If no keyword is matched, the status is left blank."
-                ]),
-                ("Distance & Inventory Norms", [
-                    "Vendor distances are calculated 'as the crow flies' (geodesic distance) using latitude and longitude derived from pincodes via the Nominatim (OpenStreetMap) service.",
-                    "The geocoding service has a rate limit of 1 request per second. The accuracy depends entirely on the service's data for the provided pincodes.",
-                    "If a pincode cannot be geocoded, the distance will be blank.",
-                    "'RM IN DAYS' (Raw Material in Days) is determined by a fixed matrix that combines the 'Part Classification' (A, B, C) and the 'Distance Code' (1, 2, 3, 4)."
-                ]),
-                ("Warehouse Location", [
-                    "A base warehouse location is assigned based on the part's 'Family'.",
-                    "This initial assignment can be overridden by a set of specific rules that look for additional keywords in the part description or consider other attributes like volume.",
-                    "If a family is not in the base mapping, it defaults to 'HRR' (High Rise Rack)."
-                ])
-            ]
-            
-            row = 2
-            for category, points in assumptions:
-                assumptions_sheet.merge_range(row, 0, row, 1, category, subheader_format)
-                row += 1
-                for point in points:
-                    assumptions_sheet.write(row, 0, "", text_format) # Indent
-                    assumptions_sheet.write(row, 1, point, text_format)
-                    assumptions_sheet.set_row(row, len(point.split('\n')) * 15)
-                    row += 1
-                row += 1 # Add a blank row between categories
-
-            # --- Sheet 2: The main, formatted PFEP data ---
+            # Main table formats
             h_gray = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'align': 'center', 'fg_color': '#D9D9D9', 'border': 1})
             s_orange = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#FDE9D9', 'border': 1})
             s_blue = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#DCE6F1', 'border': 1})
             
-            final_df.to_excel(writer, sheet_name='Master Data Sheet', startrow=2, header=False, index=False)
-            worksheet = writer.sheets['Master Data Sheet']
+            # Header assumption formats
+            header_title_format = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'border': 1})
+            header_label_format = workbook.add_format({'align': 'center', 'border': 1})
+            header_value_format = workbook.add_format({'align': 'center', 'border': 1})
+            percentage_format = workbook.add_format({'align': 'center', 'border': 1, 'num_format': '0%'})
+            size_assumption_format = workbook.add_format({'align': 'left'})
+            
+            # --- 4. Write the Header Section on the Main Sheet ---
+            # Daily Consumption Table
+            worksheet.merge_range('J5:L5', 'Daily consumption', header_title_format)
+            veh_names = list(daily_consumption_values.keys())
+            if len(veh_names) >= 2:
+                worksheet.write('K6', veh_names[0], header_label_format)
+                worksheet.write('L6', veh_names[1], header_label_format)
+                worksheet.write('K7', daily_consumption_values[veh_names[0]], header_value_format)
+                worksheet.write('L7', daily_consumption_values[veh_names[1]], header_value_format)
+            elif len(veh_names) == 1:
+                 worksheet.write('K6', veh_names[0], header_label_format)
+                 worksheet.write('L6', "", header_label_format)
+                 worksheet.write('K7', daily_consumption_values[veh_names[0]], header_value_format)
+                 worksheet.write('L7', "", header_value_format)
 
+            # Part Classification Assumption Table
+            worksheet.merge_range('N4:R4', 'part classification assumption', header_title_format)
+            worksheet.write('Q5', 'Count', header_label_format)
+            worksheet.write('R5', 'Percentage', header_label_format)
+            
+            class_rows_data = {
+                'AA': { 'label': '>50000', 'row': 6}, 'A':  { 'label': '5000< & <50000', 'row': 7},
+                'B':  { 'label': '100< & <5000', 'row': 8}, 'C':  { 'label': '<100', 'row': 9}
+            }
+            for code, data in class_rows_data.items():
+                row_idx = data['row'] - 1 # Convert to 0-index
+                worksheet.merge_range(row_idx, 13, row_idx, 15, code, header_label_format) # N to P
+                worksheet.write(row_idx, 16, part_class_counts.get(code, 0), header_value_format) # Q
+                worksheet.write(row_idx, 17, part_class_percentages.get(code, 0), percentage_format) # R
+            
+            worksheet.write('Q10', total_classified, header_value_format)
+            worksheet.write('R10', 1 if total_classified > 0 else 0, percentage_format)
+            
+            # Size Classification Assumption
+            worksheet.write('S5', '>1.5m3 OR >1200mm')
+            worksheet.write('S6', '1.5m3>&>0.5m3 OR 1200>&>750mm')
+            worksheet.write('S7', '0.5m3>&>0.05m3 OR 750>&>150mm')
+            worksheet.write('S8', '<0.05m3 OR 150mm>')
+
+            # --- 5. Write the Main PFEP Data Table ---
+            final_df.to_excel(writer, sheet_name='Master Data Sheet', startrow=12, header=False, index=False)
+            
             final_columns_list = final_df.columns.tolist()
             first_daily_col = qty_veh_daily_cols[0] if qty_veh_daily_cols else 'NET'
             
@@ -681,31 +640,26 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
                     end_idx = final_columns_list.index(header['end'])
                     if start_idx <= end_idx:
                         if start_idx == end_idx:
-                            worksheet.write(0, start_idx, header['title'], header['style'])
+                            worksheet.write(11, start_idx, header['title'], header['style'])
                         else:
-                            worksheet.merge_range(0, start_idx, 0, end_idx, header['title'], header['style'])
+                            worksheet.merge_range(11, start_idx, 11, end_idx, header['title'], header['style'])
                 except ValueError:
                     st.warning(f"A column for header '{header['title']}' was not found. Skipping header.")
 
             for col_num, value in enumerate(final_columns_list):
-                worksheet.write(1, col_num, value, h_gray)
+                worksheet.write(12, col_num, value, h_gray)
             worksheet.set_column('A:A', 6); worksheet.set_column('B:C', 22); worksheet.set_column('D:ZZ', 18)
 
-            # --- Subsequent Sheets: Add all the source files ---
+            # --- 6. Add Source File Sheets ---
             if source_files_dict:
                 for file_category, df_list in source_files_dict.items():
-                    if not df_list: continue # Skip if no files were uploaded for this category
-
+                    if not df_list: continue
                     if len(df_list) == 1:
-                        # If only one file, use a clean name like "Source_Pbom"
-                        sheet_name = f"Source_{file_category.replace('_', ' ').title()}"
-                        sheet_name = sheet_name[:31] # Excel sheet name limit is 31 chars
+                        sheet_name = f"Source_{file_category.replace('_', ' ').title()}"[:31]
                         df_list[0].to_excel(writer, sheet_name=sheet_name, index=False)
                     else:
-                        # If multiple files, number them: "Source_Pbom_1", "Source_Pbom_2"
                         for i, source_df in enumerate(df_list):
-                            sheet_name = f"Source_{file_category.title()}_{i+1}"
-                            sheet_name = sheet_name[:31]
+                            sheet_name = f"Source_{file_category.title()}_{i+1}"[:31]
                             source_df.to_excel(writer, sheet_name=sheet_name, index=False)
 
         processed_data = output.getvalue()
