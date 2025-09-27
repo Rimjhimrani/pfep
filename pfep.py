@@ -580,8 +580,78 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
     with st.spinner("Creating the final Excel workbook with all source files..."):
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            # --- Sheet 1: The main, formatted PFEP data ---
             workbook = writer.book
+            
+            # --- Add Assumptions Sheet ---
+            assumptions_sheet = workbook.add_worksheet('Assumptions')
+            header_format = workbook.add_format({'bold': True, 'font_size': 14, 'bg_color': '#D9EAD3', 'border': 1})
+            subheader_format = workbook.add_format({'bold': True, 'font_size': 12, 'bg_color': '#FCE4D6', 'border': 1})
+            text_format = workbook.add_format({'text_wrap': True, 'valign': 'top', 'font_size': 11})
+            
+            assumptions_sheet.set_column('A:A', 30)
+            assumptions_sheet.set_column('B:B', 100)
+
+            assumptions_sheet.merge_range('A1:B1', 'Assumptions for PFEP Analysis', header_format)
+            
+            assumptions = [
+                ("General", [
+                    "The first valid entry found for a `part_id` or `vendor_code` across all uploaded supplementary files (Part Attribute, Packaging, Vendor Master) is used. Subsequent duplicates are ignored.",
+                    "In-house manufactured parts (identified by 'inhouse' in the 'supply_condition' column of an MBOM) are excluded from the analysis."
+                ]),
+                ("Family Classification", [
+                    "Families are assigned based on a predefined list of keywords and a priority system.",
+                    "Keywords are searched for within the 'PART DESCRIPTION' column.",
+                    "A list of 'priority families' is checked first. If a keyword for one of these families is found, it is assigned immediately.",
+                    "If no priority family is found, the system looks for the first keyword from the remaining families that appears earliest in the description.",
+                    "If no keywords are matched, the part is assigned to the 'Others' family."
+                ]),
+                ("Size Classification", [
+                    "Classification is based on the calculated volume (in cubic meters) and the maximum dimension (length, width, or height in mm).",
+                    "XL: Volume > 1.5 m³ OR Max Dimension > 1200 mm",
+                    "L: 0.5 m³ < Volume ≤ 1.5 m³ OR 750 mm < Max Dimension ≤ 1200 mm",
+                    "M: 0.05 m³ < Volume ≤ 0.5 m³ OR 150 mm < Max Dimension ≤ 750 mm",
+                    "S: All other cases."
+                ]),
+                ("Part Classification (ABC)", [
+                    "Classification is based on the unit price of the part, sorted in ascending order.",
+                    "The distribution follows a predefined percentage target:",
+                    " - C: Lowest 60% of parts by price.",
+                    " - B: Next 25% of parts.",
+                    " - A: Next 12% of parts.",
+                    " - AA: Top 3% of parts.",
+                    "Parts without a valid numeric unit price are left unclassified."
+                ]),
+                ("Packaging Classification", [
+                    "The 'ONE WAY/ RETURNABLE' status is determined by searching for keywords within the 'PRIMARY PACK TYPE' description.",
+                    "A predefined list of keywords (e.g., 'metallic pallet', 'trolley') determines 'Returnable' status.",
+                    "A separate list of keywords (e.g., 'carton box', 'polybag') determines 'One Way' status.",
+                    "If no keyword is matched, the status is left blank."
+                ]),
+                ("Distance & Inventory Norms", [
+                    "Vendor distances are calculated 'as the crow flies' (geodesic distance) using latitude and longitude derived from pincodes via the Nominatim (OpenStreetMap) service.",
+                    "The geocoding service has a rate limit of 1 request per second. The accuracy depends entirely on the service's data for the provided pincodes.",
+                    "If a pincode cannot be geocoded, the distance will be blank.",
+                    "'RM IN DAYS' (Raw Material in Days) is determined by a fixed matrix that combines the 'Part Classification' (A, B, C) and the 'Distance Code' (1, 2, 3, 4)."
+                ]),
+                ("Warehouse Location", [
+                    "A base warehouse location is assigned based on the part's 'Family'.",
+                    "This initial assignment can be overridden by a set of specific rules that look for additional keywords in the part description or consider other attributes like volume.",
+                    "If a family is not in the base mapping, it defaults to 'HRR' (High Rise Rack)."
+                ])
+            ]
+            
+            row = 2
+            for category, points in assumptions:
+                assumptions_sheet.merge_range(row, 0, row, 1, category, subheader_format)
+                row += 1
+                for point in points:
+                    assumptions_sheet.write(row, 0, "", text_format) # Indent
+                    assumptions_sheet.write(row, 1, point, text_format)
+                    assumptions_sheet.set_row(row, len(point.split('\n')) * 15)
+                    row += 1
+                row += 1 # Add a blank row between categories
+
+            # --- Sheet 2: The main, formatted PFEP data ---
             h_gray = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'align': 'center', 'fg_color': '#D9D9D9', 'border': 1})
             s_orange = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#FDE9D9', 'border': 1})
             s_blue = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#DCE6F1', 'border': 1})
