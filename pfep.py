@@ -306,20 +306,49 @@ def finalize_master_df(base_bom_df, supplementary_dfs):
 
 # --- 3. CLASSIFICATION AND PROCESSING CLASSES ---
 class PartClassificationSystem:
+    def __init__(self):
+        self.percentages = {'C': {'target': 60, 'tolerance': 5}, 'B': {'target': 25, 'tolerance': 2}, 'A': {'target': 12, 'tolerance': 2}, 'AA': {'target': 3, 'tolerance': 1}}
+        self.calculated_ranges = {}
+
+    def calculate_percentage_ranges(self, df, price_column):
+        valid_prices = pd.to_numeric(df[price_column], errors='coerce').dropna().sort_values()
+        if valid_prices.empty:
+            st.warning("No valid prices found to calculate part classification ranges.")
+            return
+        
+        total_valid_parts = len(valid_prices)
+        st.write(f"Calculating classification ranges from {total_valid_parts} valid prices...")
+        
+        ranges, current_idx = {}, 0
+        processing_order = ['C', 'B', 'A', 'AA']
+        
+        for class_name in processing_order:
+            details = self.percentages[class_name]
+            target_percent = details['target']
+            count = round(total_valid_parts * (target_percent / 100))
+            end_idx = min(current_idx + count - 1, total_valid_parts - 1)
+            
+            if current_idx <= end_idx:
+                min_val = valid_prices.iloc[current_idx]
+                max_val = valid_prices.iloc[end_idx]
+                ranges[class_name] = {'min': min_val, 'max': max_val}
+            
+            current_idx = end_idx + 1
+            
+        self.calculated_ranges = {k: ranges.get(k, {'min': 0, 'max': 0}) for k in self.percentages.keys()}
+        st.write("   Ranges calculated successfully.")
+
     def classify_part(self, unit_price):
-        """Classifies a single part based on fixed price ranges."""
-        if pd.isna(unit_price): # This check now works reliably on numbers
-            return np.nan
-        price = float(unit_price)
-        if price > 50000: return 'AA'
-        if 5000 <= price <= 50000: return 'A'
-        if 100 <= price < 5000: return 'B'
-        if price < 100: return 'C'
-        return np.nan
+        if pd.isna(unit_price) or not isinstance(unit_price, (int, float)): return np.nan
+        if not self.calculated_ranges: return 'Unclassified'
+        
+        if unit_price >= self.calculated_ranges.get('AA', {'min': float('inf')})['min']: return 'AA'
+        if unit_price >= self.calculated_ranges.get('A', {'min': float('inf')})['min']: return 'A'
+        if unit_price >= self.calculated_ranges.get('B', {'min': float('inf')})['min']: return 'B'
+        return 'C'
 
     def classify_all_parts(self, df, price_column):
-        """Applies fixed-range classification to a DataFrame column."""
-        st.write("Classifying parts based on fixed price ranges (AA: >50k, A: 5k-50k, B: 100-5k, C: <100).")
+        self.calculate_percentage_ranges(df, price_column)
         return df[price_column].apply(self.classify_part)
 
 class ComprehensiveInventoryProcessor:
