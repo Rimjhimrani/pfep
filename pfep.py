@@ -308,7 +308,7 @@ def finalize_master_df(base_bom_df, supplementary_dfs):
 class PartClassificationSystem:
     def classify_part(self, unit_price):
         """Classifies a single part based on fixed price ranges."""
-        if pd.isna(unit_price) or not isinstance(unit_price, (int, float, np.number)):
+        if pd.isna(unit_price): # This check now works reliably on numbers
             return np.nan
         price = float(unit_price)
         if price > 50000: return 'AA'
@@ -434,6 +434,11 @@ class ComprehensiveInventoryProcessor:
             self.data['part_classification'] = np.nan
             st.warning("'unit_price' column not found. Skipping part classification.")
             return
+
+        # FIX: Ensure the unit_price column is numeric before classification.
+        # 'coerce' will turn any non-numeric values into NaN (Not a Number).
+        self.data['unit_price'] = pd.to_numeric(self.data['unit_price'], errors='coerce')
+
         self.data['part_classification'] = self.classifier.classify_all_parts(self.data, 'unit_price')
         st.success("✅ Fixed-range part classification complete.")
 
