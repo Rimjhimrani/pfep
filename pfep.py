@@ -373,6 +373,7 @@ class ComprehensiveInventoryProcessor:
         self.data = initial_data.copy()
         self.rm_days_mapping = {'A1': 4, 'A2': 6, 'A3': 8, 'A4': 11, 'B1': 6, 'B2': 11, 'B3': 13, 'B4': 16, 'C1': 16, 'C2': 31}
         self.classifier = PartClassificationSystem()
+        self.assumed_families_df = pd.DataFrame()
 
     def calculate_dynamic_consumption(self, qty_cols, multipliers):
         st.subheader("Calculating Daily & Net Consumption")
@@ -418,6 +419,16 @@ class ComprehensiveInventoryProcessor:
 
         self.data['family'] = self.data['description'].apply(extract_family)
         st.success("✅ Automated family classification complete.")
+
+        # Store the results for the separate 'Assumed Families' sheet
+        if 'part_id' in self.data.columns:
+            self.assumed_families_df = self.data[['part_id', 'description', 'family']].copy()
+            self.assumed_families_df.rename(columns={
+                'part_id': 'PARTNO',
+                'description': 'PART DESCRIPTION',
+                'family': 'ASSUMED FAMILY'
+            }, inplace=True)
+        st.success("✅ Family assumptions recorded for separate report sheet.")
 
     def run_size_classification(self):
         st.subheader("(B) Size Classification")
@@ -571,7 +582,7 @@ class ComprehensiveInventoryProcessor:
         st.success("✅ Automated warehouse location assignment complete.")
 
 # --- 4. UI AND REPORTING FUNCTIONS ---
-def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
+def create_formatted_excel_output(df, vehicle_configs, assumed_families_df=None, source_files_dict=None):
     st.subheader("(G) Generating Formatted Excel Report")
     
     final_df = df.copy()
@@ -706,6 +717,13 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
             for col_num, value in enumerate(final_columns_list):
                 worksheet.write(12, col_num, value, h_gray)
             worksheet.set_column('A:A', 6); worksheet.set_column('B:C', 22); worksheet.set_column('D:ZZ', 18)
+
+            if assumed_families_df is not None and not assumed_families_df.empty:
+                assumed_families_df.to_excel(writer, sheet_name='Assumed Families', index=False)
+                worksheet_assumed = writer.sheets['Assumed Families']
+                worksheet_assumed.set_column('A:A', 20)
+                worksheet_assumed.set_column('B:B', 40)
+                worksheet_assumed.set_column('C:C', 25)
 
             if source_files_dict:
                 for file_category, df_list in source_files_dict.items():
@@ -945,7 +963,13 @@ def main():
                 render_review_step(step['name'], step['key'], next_stage)
 
     elif st.session_state.app_stage == "generate_report":
-        report_data = create_formatted_excel_output(st.session_state.master_df, st.session_state.vehicle_configs, source_files_dict=st.session_state.get('source_files_for_report'))
+        assumed_families_data = st.session_state.processor.assumed_families_df
+        report_data = create_formatted_excel_output(
+            st.session_state.master_df,
+            st.session_state.vehicle_configs,
+            assumed_families_df=assumed_families_data,
+            source_files_dict=st.session_state.get('source_files_for_report')
+        )
         st.session_state.final_report = report_data
         st.balloons()
         st.success("🎉 End-to-end process complete!")
