@@ -675,8 +675,8 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
             for size, row_num in size_row_map.items():
                 row_idx = row_num - 1
                 worksheet.write(row_idx, 18, size, header_label_format) # Column T
-                worksheet.write(row_idx, 29, int(size_counts.get(size, 0)), header_value_format) # Column U
-            worksheet.write('U10', int(size_counts.sum()), header_value_format)
+                worksheet.write(row_idx, 20, int(size_counts.get(size, 0)), header_value_format) # Column U
+            worksheet.write('T10', int(size_counts.sum()), header_value_format)
 
             # --- NEW: Packaging Type Count Table ---
             worksheet.merge_range('W4:X4', 'Packaging Type Count', header_title_format)
