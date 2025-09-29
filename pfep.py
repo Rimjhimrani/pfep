@@ -622,7 +622,7 @@ def create_formatted_excel_output(df, vehicle_configs, assumed_families_df=None,
     packaging_counts = df['one_way_returnable'].value_counts().reindex(['One Way', 'Returnable']).fillna(0)
     wh_loc_counts = df['wh_loc'].value_counts()
     family_counts = df['family'].value_counts()
-
+    
     with st.spinner("Creating the final Excel workbook with all source files..."):
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -638,7 +638,7 @@ def create_formatted_excel_output(df, vehicle_configs, assumed_families_df=None,
             header_value_format = workbook.add_format({'align': 'center', 'border': 1})
             percentage_format = workbook.add_format({'align': 'center', 'border': 1, 'num_format': '0.0%'})
             
-            # --- WRITE ALL SUMMARY TABLES ---
+            # --- WRITE SUMMARY TABLES TO 'Master Data Sheet' ---
             worksheet.merge_range('J5:K5', 'Daily consumption', header_title_format)
             veh_names = list(daily_consumption_values.keys())
             if len(veh_names) >= 2:
@@ -696,23 +696,8 @@ def create_formatted_excel_output(df, vehicle_configs, assumed_families_df=None,
                 worksheet.write(row_idx, 24, location, header_value_format); worksheet.write(row_idx, 25, count, header_value_format)
                 current_row += 1
 
-            # --- NEW: Family Count Section ---
-            worksheet.merge_range('AB4:AC4', 'Family Count', header_title_format)
-            worksheet.write('AB5', 'Family', header_label_format)
-            worksheet.write('AC5', 'Count', header_label_format)
-            current_row = 6
-            # Display up to 15 families to keep the summary section clean
-            for family, count in family_counts.items():
-                if current_row > 20: 
-                    worksheet.write(current_row - 1, 27, '...and more', header_value_format)
-                    break
-                row_idx = current_row - 1
-                worksheet.write(row_idx, 27, family, header_value_format)
-                worksheet.write(row_idx, 28, count, header_value_format)
-                current_row += 1
-
-            # --- WRITE MAIN DATA TABLE AND HEADERS ---
-            final_df.to_excel(writer, sheet_name='Master Data Sheet', startrow=22, header=False, index=False)
+            # --- WRITE MAIN DATA TABLE AND HEADERS to 'Master Data Sheet' ---
+            final_df.to_excel(writer, sheet_name='Master Data Sheet', startrow=12, header=False, index=False)
             
             final_columns_list = final_df.columns.tolist()
             first_daily_col = qty_veh_daily_cols[0] if qty_veh_daily_cols else 'NET'
@@ -729,20 +714,45 @@ def create_formatted_excel_output(df, vehicle_configs, assumed_families_df=None,
                 try:
                     start_idx = final_columns_list.index(header['start']); end_idx = final_columns_list.index(header['end'])
                     if start_idx <= end_idx:
-                        if start_idx == end_idx: worksheet.write(21, start_idx, header['title'], header['style'])
-                        else: worksheet.merge_range(21, start_idx, 21, end_idx, header['title'], header['style'])
+                        if start_idx == end_idx: worksheet.write(11, start_idx, header['title'], header['style'])
+                        else: worksheet.merge_range(11, start_idx, 11, end_idx, header['title'], header['style'])
                 except ValueError:
                     st.warning(f"A column for header '{header['title']}' was not found. Skipping header.")
 
             for col_num, value in enumerate(final_columns_list):
-                worksheet.write(22, col_num, value, h_gray)
+                worksheet.write(12, col_num, value, h_gray)
             worksheet.set_column('A:A', 6); worksheet.set_column('B:C', 22); worksheet.set_column('D:ZZ', 18)
 
             # --- WRITE SUPPLEMENTARY SHEETS ---
             if assumed_families_df is not None and not assumed_families_df.empty:
-                assumed_families_df.to_excel(writer, sheet_name='Assumed Families', index=False)
+                # Determine the starting row for the main data table
+                main_table_start_row = len(family_counts) + 4
+                
+                # Write the main data table first to create the sheet
+                assumed_families_df.to_excel(writer, sheet_name='Assumed Families', startrow=main_table_start_row, index=False)
                 worksheet_assumed = writer.sheets['Assumed Families']
-                worksheet_assumed.set_column('A:A', 20)
+
+                # Add formats for this sheet
+                title_format = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'font_size': 14, 'fg_color': '#D9D9D9', 'border': 1})
+                header_format = workbook.add_format({'bold': True, 'align': 'center', 'fg_color': '#F2F2F2', 'border': 1})
+                
+                # Write the Family Count Summary at the top of the sheet
+                worksheet_assumed.merge_range('A1:B1', 'Family Count Summary', title_format)
+                worksheet_assumed.write('A2', 'Family', header_format)
+                worksheet_assumed.write('B2', 'Count', header_format)
+                
+                current_row = 2 # Start writing data from row 3 (0-indexed)
+                for family, count in family_counts.items():
+                    worksheet_assumed.write(current_row, 0, family)
+                    worksheet_assumed.write(current_row, 1, count)
+                    current_row += 1
+                
+                # Write a title for the main data table below the summary
+                title_row_index = main_table_start_row - 1
+                worksheet_assumed.merge_range(title_row_index, 0, title_row_index, 2, 'Assumed Family for Each Part', title_format)
+
+                # Set column widths for the entire sheet
+                worksheet_assumed.set_column('A:A', 25) 
                 worksheet_assumed.set_column('B:B', 40)
                 worksheet_assumed.set_column('C:C', 25)
 
