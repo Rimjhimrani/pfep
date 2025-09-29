@@ -613,6 +613,7 @@ def create_formatted_excel_output(df, vehicle_configs, assumed_families_df=None,
     final_df = final_df[final_template]
     final_df['SR.NO'] = range(1, len(final_df) + 1)
 
+    # --- CALCULATE ALL SUMMARY DATA ---
     part_class_counts = df['part_classification'].value_counts().reindex(['AA', 'A', 'B', 'C']).fillna(0)
     total_classified = part_class_counts.sum()
     part_class_percentages = (part_class_counts / total_classified) if total_classified > 0 else part_class_counts
@@ -621,13 +622,14 @@ def create_formatted_excel_output(df, vehicle_configs, assumed_families_df=None,
     packaging_counts = df['one_way_returnable'].value_counts().reindex(['One Way', 'Returnable']).fillna(0)
     wh_loc_counts = df['wh_loc'].value_counts()
     family_counts = df['family'].value_counts()
-    
+
     with st.spinner("Creating the final Excel workbook with all source files..."):
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             workbook = writer.book
             worksheet = workbook.add_worksheet('Master Data Sheet')
             
+            # --- DEFINE FORMATS ---
             h_gray = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'align': 'center', 'fg_color': '#D9D9D9', 'border': 1})
             s_orange = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#FDE9D9', 'border': 1})
             s_blue = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#DCE6F1', 'border': 1})
@@ -636,6 +638,7 @@ def create_formatted_excel_output(df, vehicle_configs, assumed_families_df=None,
             header_value_format = workbook.add_format({'align': 'center', 'border': 1})
             percentage_format = workbook.add_format({'align': 'center', 'border': 1, 'num_format': '0.0%'})
             
+            # --- WRITE ALL SUMMARY TABLES ---
             worksheet.merge_range('J5:K5', 'Daily consumption', header_title_format)
             veh_names = list(daily_consumption_values.keys())
             if len(veh_names) >= 2:
@@ -692,7 +695,7 @@ def create_formatted_excel_output(df, vehicle_configs, assumed_families_df=None,
                 row_idx = current_row - 1
                 worksheet.write(row_idx, 24, location, header_value_format); worksheet.write(row_idx, 25, count, header_value_format)
                 current_row += 1
-            
+
             # --- NEW: Family Count Section ---
             worksheet.merge_range('AB4:AC4', 'Family Count', header_title_format)
             worksheet.write('AB5', 'Family', header_label_format)
@@ -708,7 +711,8 @@ def create_formatted_excel_output(df, vehicle_configs, assumed_families_df=None,
                 worksheet.write(row_idx, 28, count, header_value_format)
                 current_row += 1
 
-            final_df.to_excel(writer, sheet_name='Master Data Sheet', startrow=12, header=False, index=False)
+            # --- WRITE MAIN DATA TABLE AND HEADERS ---
+            final_df.to_excel(writer, sheet_name='Master Data Sheet', startrow=22, header=False, index=False)
             
             final_columns_list = final_df.columns.tolist()
             first_daily_col = qty_veh_daily_cols[0] if qty_veh_daily_cols else 'NET'
@@ -725,15 +729,16 @@ def create_formatted_excel_output(df, vehicle_configs, assumed_families_df=None,
                 try:
                     start_idx = final_columns_list.index(header['start']); end_idx = final_columns_list.index(header['end'])
                     if start_idx <= end_idx:
-                        if start_idx == end_idx: worksheet.write(11, start_idx, header['title'], header['style'])
-                        else: worksheet.merge_range(11, start_idx, 11, end_idx, header['title'], header['style'])
+                        if start_idx == end_idx: worksheet.write(21, start_idx, header['title'], header['style'])
+                        else: worksheet.merge_range(21, start_idx, 21, end_idx, header['title'], header['style'])
                 except ValueError:
                     st.warning(f"A column for header '{header['title']}' was not found. Skipping header.")
 
             for col_num, value in enumerate(final_columns_list):
-                worksheet.write(12, col_num, value, h_gray)
+                worksheet.write(22, col_num, value, h_gray)
             worksheet.set_column('A:A', 6); worksheet.set_column('B:C', 22); worksheet.set_column('D:ZZ', 18)
 
+            # --- WRITE SUPPLEMENTARY SHEETS ---
             if assumed_families_df is not None and not assumed_families_df.empty:
                 assumed_families_df.to_excel(writer, sheet_name='Assumed Families', index=False)
                 worksheet_assumed = writer.sheets['Assumed Families']
