@@ -22,7 +22,7 @@ BASE_TEMPLATE_COLUMNS = [
     'PRIMARY PACKING FACTOR', 'SECONDARY PACK TYPE', 'L-MM_Sec_Pack', 'W-MM_Sec_Pack',
     'H-MM_Sec_Pack', 'NO OF BOXES', 'QTY/PACK_Sec', 'SEC. PACK LIFESPAN', 'ONE WAY/ RETURNABLE',
     'DISTANCE CODE', 'INVENTORY CLASSIFICATION', 'RM IN DAYS', 'RM IN QTY',
-    'RM IN INR', 'PACKING FACTOR (PF)', 'NO OF SEC. REQD.', 'NO OF SEC REQ. AS PER PF',
+    'RM IN INR', 'PACKING FACTOR (PF)', 'NO OF SEC. PACK REQD.', 'NO OF SEC REQ. AS PER PF',
     'WH LOC', 'PRIMARY LOCATION ID', 'SECONDARY LOCATION ID',
     'OVER FLOW TO BE ALLOTED', 'DOCK NUMBER', 'STACKING FACTOR', 'SUPPLY TYPE', 'SUPPLY VEH SET',
     'SUPPLY STRATEGY', 'SUPPLY CONDITION', 'CONTAINER LINE SIDE', 'L-MM_Supply', 'W-MM_Supply',
@@ -248,18 +248,26 @@ def load_all_files(uploaded_files):
                     
                     if key == 'mbom' and 'supply_condition' in processed_df.columns:
                         initial_count = len(processed_df)
-                        supply_conditions_lower = processed_df['supply_condition'].astype(str).str.lower()
-                        mask_to_remove = (supply_conditions_lower.str.contains('inhouse', na=False) |
-                                          supply_conditions_lower.str.contains('make', na=False) |
-                                          (supply_conditions_lower == 'e'))
+                        
+                        # Create a Series for filtering, handling NaNs, stripping whitespace, and lowercasing
+                        supply_conditions = processed_df['supply_condition'].astype(str).str.strip().str.lower()
+                        
+                        # Define the exact terms to remove
+                        terms_to_remove = ['inhouse', 'make', 'e']
+                        
+                        # Create a boolean mask for rows to be removed using isin for strict, exact matches
+                        mask_to_remove = supply_conditions.isin(terms_to_remove)
+                        
+                        # Apply the mask to keep only the desired rows
                         processed_df = processed_df[~mask_to_remove]
                         
                         removed_count = initial_count - len(processed_df)
                         if removed_count > 0:
-                            st.info(f"   Removed {removed_count} parts from an MBOM file marked as 'Inhouse', 'Make', or 'E'.")
+                            st.info(f"   Removed {removed_count} parts from an MBOM file with supply condition 'Inhouse', 'Make', or 'E'.")
 
                     file_types[key].append(processed_df)
     return file_types
+
 
 def finalize_master_df(base_bom_df, supplementary_dfs):
     with st.spinner("Consolidating final dataset..."):
@@ -511,8 +519,8 @@ class ComprehensiveInventoryProcessor:
         
         qty_per_pack = pd.to_numeric(self.data.get('qty_per_pack'), errors='coerce').fillna(1).replace(0, 1)
         packing_factor = pd.to_numeric(self.data.get('packing_factor'), errors='coerce').fillna(1)
-        self.data['NO OF SEC. REQD.'] = np.ceil(self.data['RM IN QTY'] / qty_per_pack)
-        self.data['NO OF SEC REQ. AS PER PF'] = np.ceil(self.data['NO OF SEC. REQD.'] * packing_factor)
+        self.data['NO OF SEC. PACK REQD.'] = np.ceil(self.data['RM IN QTY'] / qty_per_pack)
+        self.data['NO OF SEC REQ. AS PER PF'] = np.ceil(self.data['NO OF SEC. PACK REQD.'] * packing_factor)
         st.success(f"✅ Inventory norms calculated.")
 
     def run_warehouse_location_assignment(self):
