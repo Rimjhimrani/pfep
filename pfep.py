@@ -602,6 +602,11 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
     total_classified = part_class_counts.sum()
     part_class_percentages = (part_class_counts / total_classified) if total_classified > 0 else part_class_counts
     
+    # --- NEW: Added calculations for new summary tables ---
+    size_counts = df['size_classification'].value_counts().reindex(['XL', 'L', 'M', 'S']).fillna(0)
+    packaging_counts = df['one_way_returnable'].value_counts().reindex(['One Way', 'Returnable']).fillna(0)
+    wh_loc_counts = df['wh_loc'].value_counts()
+    
     with st.spinner("Creating the final Excel workbook with all source files..."):
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -619,6 +624,7 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
             percentage_format = workbook.add_format({'align': 'center', 'border': 1, 'num_format': '0.0%'})
             
             # --- 4. Write the Header Section on the Main Sheet ---
+            # Daily Consumption Table
             worksheet.merge_range('J5:L5', 'Daily consumption', header_title_format)
             veh_names = list(daily_consumption_values.keys())
             if len(veh_names) >= 2:
@@ -628,7 +634,7 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
                 worksheet.write('L7', daily_consumption_values.get(veh_names[1], 0), header_value_format)
             elif len(veh_names) == 1:
                  worksheet.write('K6', veh_names[0], header_label_format)
-                 worksheet.write('L6', "", header_label_format) # Blank for alignment
+                 worksheet.write('L6', "", header_label_format)
                  worksheet.write('K7', daily_consumption_values.get(veh_names[0], 0), header_value_format)
                  worksheet.write('L7', "", header_value_format)
 
@@ -640,7 +646,6 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
             worksheet.write('Q5', 'Count', header_label_format)
             worksheet.write('R5', 'Actual %', header_label_format)
             
-            # CORRECTED: Use the actual calculated ranges from the processor
             calculated_ranges = st.session_state.processor.classifier.calculated_ranges
             def format_range(class_name):
                 if not calculated_ranges or class_name not in calculated_ranges: return "N/A"
@@ -652,15 +657,50 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
 
             row_map = {'AA': 6, 'A': 7, 'B': 8, 'C': 9}
             for code, row_num in row_map.items():
-                row_idx = row_num - 1 # 0-indexed for xlsxwriter
-                worksheet.write(row_idx, 13, code, header_label_format) # Column N
-                worksheet.write(row_idx, 14, format_range(code), header_value_format) # Column O
-                worksheet.write(row_idx, 15, st.session_state.processor.classifier.percentages[code]['target'] / 100, percentage_format) # Column P
-                worksheet.write(row_idx, 16, part_class_counts.get(code, 0), header_value_format) # Column Q
-                worksheet.write(row_idx, 17, part_class_percentages.get(code, 0), percentage_format) # Column R
+                row_idx = row_num - 1
+                worksheet.write(row_idx, 13, code, header_label_format)
+                worksheet.write(row_idx, 14, format_range(code), header_value_format)
+                worksheet.write(row_idx, 15, st.session_state.processor.classifier.percentages[code]['target'] / 100, percentage_format)
+                worksheet.write(row_idx, 16, part_class_counts.get(code, 0), header_value_format)
+                worksheet.write(row_idx, 17, part_class_percentages.get(code, 0), percentage_format)
             
             worksheet.write('Q10', total_classified, header_value_format)
             worksheet.write('R10', 1 if total_classified > 0 else 0, percentage_format)
+
+            # --- NEW: Size Classification Count Table ---
+            worksheet.merge_range('T4:U4', 'Size Classification Count', header_title_format)
+            worksheet.write('T5', 'Size', header_label_format)
+            worksheet.write('U5', 'Count', header_label_format)
+            size_row_map = {'XL': 6, 'L': 7, 'M': 8, 'S': 9}
+            for size, row_num in size_row_map.items():
+                row_idx = row_num - 1
+                worksheet.write(row_idx, 19, size, header_label_format) # Column T
+                worksheet.write(row_idx, 20, int(size_counts.get(size, 0)), header_value_format) # Column U
+            worksheet.write('U10', int(size_counts.sum()), header_value_format)
+
+            # --- NEW: Packaging Type Count Table ---
+            worksheet.merge_range('W4:X4', 'Packaging Type Count', header_title_format)
+            worksheet.write('W5', 'Type', header_label_format)
+            worksheet.write('X5', 'Count', header_label_format)
+            pack_row_map = {'One Way': 6, 'Returnable': 7}
+            for pack_type, row_num in pack_row_map.items():
+                row_idx = row_num - 1
+                worksheet.write(row_idx, 22, pack_type, header_label_format) # Column W
+                worksheet.write(row_idx, 23, int(packaging_counts.get(pack_type, 0)), header_value_format) # Column X
+
+            # --- NEW: Warehouse Location Count Table ---
+            worksheet.merge_range('Z4:AA4', 'Warehouse Location Count', header_title_format)
+            worksheet.write('Z5', 'Location', header_label_format)
+            worksheet.write('AA5', 'Count', header_label_format)
+            current_row = 6
+            for location, count in wh_loc_counts.items():
+                if current_row > 11: # Stop before hitting the main table headers
+                    worksheet.write(current_row - 1, 25, '...and more', header_value_format)
+                    break
+                row_idx = current_row - 1
+                worksheet.write(row_idx, 25, location, header_value_format) # Column Z
+                worksheet.write(row_idx, 26, count, header_value_format)      # Column AA
+                current_row += 1
 
             # --- 5. Write the Main PFEP Data Table ---
             final_df.to_excel(writer, sheet_name='Master Data Sheet', startrow=12, header=False, index=False)
