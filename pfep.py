@@ -174,22 +174,34 @@ def find_and_rename_columns(df):
 def _consolidate_bom_list(bom_list):
     """
     Combines a list of BOM DataFrames into a single DataFrame with unique parts.
-    If a part_id is duplicated, it keeps only the first occurrence.
+    It intelligently merges rows for the same part number from different files,
+    preserving the quantity for each respective vehicle.
     """
     valid_boms = [df for df in bom_list if df is not None and 'part_id' in df.columns]
     if not valid_boms:
         return None
 
-    # 1. Combine all uploaded BOM files into a single DataFrame.
     master = pd.concat(valid_boms, ignore_index=True)
-    
-    # 2. Ensure part_id is a consistent string type for accurate duplicate detection.
     master['part_id'] = master['part_id'].astype(str)
     
-    # 3. The crucial step: Remove duplicate part numbers, keeping only the first one encountered.
-    # This prevents the unwanted summation of quantities from within a single file.
-    master.drop_duplicates(subset=['part_id'], keep='first', inplace=True)
+    qty_cols = [col for col in master.columns if 'qty_veh_temp' in col]
+    other_cols = [col for col in master.columns if col not in qty_cols and col != 'part_id']
     
+    # Define the aggregation strategy
+    agg_dict = {}
+    # For quantity columns, sum them up. This works because a part's quantity
+    # for a specific vehicle will only have a value in one row of the group.
+    for col in qty_cols:
+        agg_dict[col] = 'sum'
+    # For all other descriptive columns, take the first non-null value found.
+    for col in other_cols:
+        agg_dict[col] = 'first'
+        
+    # Group by part number and apply the aggregation
+    master = master.groupby('part_id').agg(agg_dict).reset_index()
+    
+    # After summing, NaNs that were treated as 0 should remain, which is fine.
+    # No need to replace 0 with NaN as this can remove legitimate zero-quantity entries.
     return master
 
 
@@ -285,8 +297,20 @@ def finalize_master_df(base_bom_df, supplementary_dfs):
         
         final_df.drop_duplicates(subset=['part_id'], keep='first', inplace=True)
         
+        # Detect temporary quantity columns and dynamically create vehicle configs
         detected_qty_cols = sorted([col for col in final_df.columns if 'qty_veh_temp_' in str(col)])
-        rename_map = {old_name: f"qty_veh_{i}" for i, old_name in enumerate(detected_qty_cols)}
+        
+        vehicle_configs = []
+        rename_map = {}
+        for i, old_name in enumerate(detected_qty_cols):
+            # Extract original name (e.g., '135kw') to use as the vehicle name
+            vehicle_name = old_name.replace('qty_veh_temp_', '', 1).replace('_', ' ')
+            vehicle_configs.append({"name": vehicle_name, "multiplier": 1.0})
+            
+            # Map the temporary name to its final name (e.g., 'qty_veh_0')
+            new_name = f"qty_veh_{i}"
+            rename_map[old_name] = new_name
+
         final_df.rename(columns=rename_map, inplace=True)
         final_qty_cols = sorted(rename_map.values())
         
@@ -296,7 +320,8 @@ def finalize_master_df(base_bom_df, supplementary_dfs):
         st.success(f"Consolidated base has {final_df['part_id'].nunique()} unique parts.")
         st.success(f"Detected {len(final_qty_cols)} unique 'Quantity per Vehicle' columns.")
         
-        return final_df, final_qty_cols
+        # Return the dynamically created vehicle configs
+        return final_df, final_qty_cols, vehicle_configs
 
 # --- 3. CLASSIFICATION AND PROCESSING CLASSES ---
 class PartClassificationSystem:
@@ -825,7 +850,7 @@ def main():
                     base_bom = _consolidate_bom_list(bom_dfs)
                     if base_bom is not None:
                         supp_dfs = [st.session_state.all_files[k] for k in ['part_attribute', 'vendor_master', 'packaging']]
-                        st.session_state.master_df, st.session_state.qty_cols = finalize_master_df(base_bom, supp_dfs)
+                        st.session_state.master_df, st.session_state.qty_cols, st.session_state.vehicle_configs = finalize_master_df(base_bom, supp_dfs)
                         st.session_state.app_stage = "configure"
                     else:
                         st.error("Failed to consolidate BOM data. Please check your files.")
@@ -851,7 +876,7 @@ def main():
             base_bom_df = { 'Use PBOM as base': master_pbom, 'Use MBOM as base': master_mbom, 'Combine both PBOM and MBOM': _consolidate_bom_list([master_pbom, master_mbom]) }[bom_choice]
             if base_bom_df is not None:
                 supp_dfs = [all_files[k] for k in ['part_attribute', 'vendor_master', 'packaging']]
-                st.session_state.master_df, st.session_state.qty_cols = finalize_master_df(base_bom_df, supp_dfs)
+                st.session_state.master_df, st.session_state.qty_cols, st.session_state.vehicle_configs = finalize_master_df(base_bom_df, supp_dfs)
                 st.session_state.app_stage = "configure"
                 st.rerun()
 
