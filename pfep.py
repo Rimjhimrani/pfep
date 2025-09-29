@@ -68,8 +68,7 @@ def get_lat_lon(pincode, country="India", city="", state="", retries=3, backoff_
         if attempt < retries - 1:
             wait_time = backoff_factor * (attempt + 1)
             time.sleep(wait_time)
-
-    st.warning(f"Geocoding failed for pincode '{pincode_str}' (City: {city}, State: {state}). Distances for this vendor will be blank. Please verify the address details.")
+    
     return (None, None)
 
 
@@ -103,6 +102,7 @@ def validate_and_parse_pfep(df, is_modify_workflow=False):
     Validates the structure of a PFEP file. For the 'modify' workflow,
     it performs stricter checks for columns required for recalculations.
     """
+    # Create a case-insensitive set of column names for validation
     uploaded_cols = {str(col).lower().strip() for col in df.columns}
     
     # Basic structural checks for all workflows
@@ -112,7 +112,7 @@ def validate_and_parse_pfep(df, is_modify_workflow=False):
         st.error(f"Validation Failed: The uploaded file is missing one or more structural columns: {', '.join(missing).upper()}.")
         return None, None, None
 
-    # Stricter checks for the modify workflow
+    # Stricter checks for the modify workflow to ensure norms can be calculated
     if is_modify_workflow:
         required_for_recalc = {'unit price', 'pincode'}
         if not required_for_recalc.issubset(uploaded_cols):
@@ -120,24 +120,24 @@ def validate_and_parse_pfep(df, is_modify_workflow=False):
             st.error(f"Validation Failed for 'Modify' Workflow: To recalculate inventory norms, the uploaded PFEP must contain the following columns: {', '.join(missing).upper()}. Please add them and re-upload.")
             return None, None, None
 
-    # Identify vehicle-specific columns based on their position in the template
+    # Identify vehicle-specific columns using case-insensitive search
     try:
-        # Use a case-insensitive search for column indices
-        part_desc_idx = [i for i, col in enumerate(df.columns) if str(col).lower().strip() == 'part description'][0]
-        total_idx = [i for i, col in enumerate(df.columns) if str(col).lower().strip() == 'total'][0]
-        vehicle_qty_pfep_cols = df.columns[part_desc_idx + 1 : total_idx].tolist()
+        original_cols = list(df.columns)
+        part_desc_idx = [i for i, col in enumerate(original_cols) if str(col).lower().strip() == 'part description'][0]
+        total_idx = [i for i, col in enumerate(original_cols) if str(col).lower().strip() == 'total'][0]
+        vehicle_qty_pfep_cols = original_cols[part_desc_idx + 1 : total_idx]
     except IndexError:
         st.error("Validation Failed: Could not find 'PART DESCRIPTION' or 'TOTAL' columns to identify vehicle types.")
         return None, None, None
 
-    all_mappings = {**PFEP_COLUMN_MAP, **INTERNAL_TO_PFEP_NEW_COLS}
-    reverse_map = {v: k for k, v in all_mappings.items()}
-    df.rename(columns=reverse_map, inplace=True)
-
+    # Rename all columns to a consistent internal format
+    df = find_and_rename_columns(df)
+    
+    # Rename vehicle columns to internal format (qty_veh_0, qty_veh_1, etc.)
     vehicle_configs, internal_qty_cols = [], []
     for i, col_name in enumerate(vehicle_qty_pfep_cols):
         internal_name = f"qty_veh_{i}"
-        df.rename(columns={col_name: internal_name}, inplace=True)
+        df.rename(columns={col_name: internal_name}, inplace=True, errors='ignore') # Ignore if already renamed
         internal_qty_cols.append(internal_name)
         vehicle_configs.append({"name": col_name, "multiplier": 1.0})
 
@@ -149,23 +149,26 @@ def validate_and_parse_pfep(df, is_modify_workflow=False):
 
 
 def find_and_rename_columns(df):
-    rename_dict, found_keys = {}, []
+    rename_dict = {}
+    original_cols = df.columns.tolist()
+    
+    # Create a mapping from lowercase, stripped column names to their original casing
+    lower_to_original = {str(col).lower().strip(): col for col in original_cols}
+
+    # Find matches for PFEP_COLUMN_MAP
     for internal_key, pfep_name in PFEP_COLUMN_MAP.items():
-        for col in df.columns:
-            if str(col).lower().strip() == pfep_name.lower():
-                rename_dict[col] = internal_key
-                found_keys.append(internal_key)
-                break
+        pfep_lower = pfep_name.lower()
+        if pfep_lower in lower_to_original:
+            rename_dict[lower_to_original[pfep_lower]] = internal_key
+
+    # Find matches for Qty/Veh columns
     qty_veh_regex = re.compile(r'(qty|quantity)[\s_/]?p?e?r?[\s_/]?veh(icle)?', re.IGNORECASE)
-    qty_veh_cols = [col for col in df.columns if qty_veh_regex.search(str(col))]
-    for original_col in qty_veh_cols:
-        if original_col not in rename_dict:
+    for original_col in original_cols:
+        if qty_veh_regex.search(str(original_col)) and original_col not in rename_dict:
             temp_name = f"qty_veh_temp_{original_col}".replace(" ", "_")
             rename_dict[original_col] = temp_name
-            found_keys.append(f"{temp_name} (from {original_col})")
+            
     df.rename(columns=rename_dict, inplace=True)
-    if found_keys: st.info(f"   Found and mapped columns: {found_keys}")
-    else: st.warning("   Could not automatically map any standard columns.")
     return df
 
 def _consolidate_bom_list(bom_list):
@@ -454,7 +457,6 @@ class ComprehensiveInventoryProcessor:
         missing_cols = [col for col in required_cols if col not in self.data.columns]
         if missing_cols:
             st.error(f"Cannot calculate inventory norms. The data is missing the following required columns: {', '.join(missing_cols)}")
-            # Fill output columns with NaN to avoid downstream errors
             for col in ['distance_km', 'DISTANCE CODE', 'inventory_classification', 'RM IN DAYS', 'RM IN QTY', 'RM IN INR', 'NO OF SEC. REQD.', 'NO OF SEC REQ. AS PER PF']:
                 self.data[col] = np.nan
             return
@@ -465,7 +467,6 @@ class ComprehensiveInventoryProcessor:
             st.error(f"CRITICAL: Could not find coordinates for your pincode {pincode}. Distances cannot be calculated.")
             return
 
-        # Prepare a unique list of vendor locations to geocode
         vendor_locations = self.data[['pincode', 'city', 'state']].drop_duplicates().dropna(subset=['pincode'])
         location_cache = {}
         
@@ -476,7 +477,6 @@ class ComprehensiveInventoryProcessor:
         total_locations = len(vendor_locations)
         for i, row in enumerate(vendor_locations.itertuples()):
             status_placeholder.info(f"Geocoding vendor {i+1} of {total_locations}...")
-            # Use tuple of location data as cache key
             cache_key = (row.pincode, row.city, row.state)
             if cache_key not in location_cache:
                 coords = get_lat_lon(row.pincode, city=str(row.city), state=str(row.state))
@@ -490,7 +490,6 @@ class ComprehensiveInventoryProcessor:
         else:
             st.sidebar.success(f"Successfully geocoded all {total_locations} vendor locations.")
 
-        # Map the calculated distances back to the main dataframe
         def map_distance(row):
             cache_key = (row.get('pincode'), row.get('city'), row.get('state'))
             return location_cache.get(cache_key, np.nan)
@@ -877,6 +876,7 @@ def main():
             st.session_state.master_df = processor.calculate_dynamic_consumption(st.session_state.qty_cols, [c.get('multiplier', 0) for c in vehicle_configs_input])
             st.session_state.processor = processor
 
+            # UNIFIED WORKFLOW: Both 'create' and 'modify' now start the full processing pipeline here.
             st.session_state.app_stage = "process_family" 
             st.rerun()
 
@@ -904,6 +904,7 @@ def main():
                 st.header(f"Step 3: Automated Processing")
                 with st.spinner(f"Running {step['name']}..."):
                     processor = st.session_state.processor
+                    # The pincode is now passed correctly from the session state
                     if step['method'] == 'run_location_based_norms':
                         getattr(processor, step['method'])(st.session_state.pincode)
                     else:
