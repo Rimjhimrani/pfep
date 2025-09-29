@@ -39,13 +39,9 @@ GEOLOCATOR = Nominatim(user_agent="inventory_distance_calculator_streamlit_v11",
 # --- 2. CORE DATA PROCESSING FUNCTIONS ---
 @st.cache_data
 def get_lat_lon(pincode, country="India", city="", state="", retries=3, backoff_factor=2):
-    """
-    More robustly geocodes a pincode by trying multiple query formats.
-    """
     pincode_str = str(pincode).strip().split('.')[0]
     if not (pincode_str.isdigit() and len(pincode_str) == 6):
         return (None, None)
-
     queries_to_try = [
         {'postalcode': pincode_str, 'city': city, 'state': state, 'country': country},
         {'postalcode': pincode_str, 'state': state, 'country': country},
@@ -53,7 +49,6 @@ def get_lat_lon(pincode, country="India", city="", state="", retries=3, backoff_
         f"{pincode_str}, {city}, {state}, {country}",
         f"{pincode_str}, {country}"
     ]
-
     for attempt in range(retries):
         time.sleep(1) 
         for query in queries_to_try:
@@ -64,13 +59,9 @@ def get_lat_lon(pincode, country="India", city="", state="", retries=3, backoff_
             except Exception as e:
                 print(f"Geocoding attempt {attempt+1} for query '{query}' failed with error: {e}")
                 break 
-
         if attempt < retries - 1:
-            wait_time = backoff_factor * (attempt + 1)
-            time.sleep(wait_time)
-    
+            time.sleep(backoff_factor * (attempt + 1))
     return (None, None)
-
 
 def get_distance_code(distance):
     if pd.isna(distance): return None
@@ -90,7 +81,6 @@ def read_uploaded_file(uploaded_file):
         return None
 
 def read_pfep_file(uploaded_file):
-    """Reads an Excel file assuming headers are on the second row."""
     try:
         return pd.read_excel(uploaded_file, header=1)
     except Exception as e:
@@ -98,29 +88,18 @@ def read_pfep_file(uploaded_file):
         return None
 
 def validate_and_parse_pfep(df, is_modify_workflow=False):
-    """
-    Validates the structure of a PFEP file. For the 'modify' workflow,
-    it performs stricter checks for columns required for recalculations.
-    """
-    # Create a case-insensitive set of column names for validation
     uploaded_cols = {str(col).lower().strip() for col in df.columns}
-    
-    # Basic structural checks for all workflows
     core_cols = {'partno', 'part description', 'family', 'net', 'total'}
     if not core_cols.issubset(uploaded_cols):
         missing = core_cols - uploaded_cols
         st.error(f"Validation Failed: The uploaded file is missing one or more structural columns: {', '.join(missing).upper()}.")
         return None, None, None
-
-    # Stricter checks for the modify workflow to ensure norms can be calculated
     if is_modify_workflow:
         required_for_recalc = {'unit price', 'pincode'}
         if not required_for_recalc.issubset(uploaded_cols):
             missing = required_for_recalc - uploaded_cols
             st.error(f"Validation Failed for 'Modify' Workflow: To recalculate inventory norms, the uploaded PFEP must contain the following columns: {', '.join(missing).upper()}. Please add them and re-upload.")
             return None, None, None
-
-    # Identify vehicle-specific columns using case-insensitive search
     try:
         original_cols = list(df.columns)
         part_desc_idx = [i for i, col in enumerate(original_cols) if str(col).lower().strip() == 'part description'][0]
@@ -129,120 +108,75 @@ def validate_and_parse_pfep(df, is_modify_workflow=False):
     except IndexError:
         st.error("Validation Failed: Could not find 'PART DESCRIPTION' or 'TOTAL' columns to identify vehicle types.")
         return None, None, None
-
-    # Rename all columns to a consistent internal format
-    df = find_and_rename_columns(df)
-    
-    # Rename vehicle columns to internal format (qty_veh_0, qty_veh_1, etc.)
+    df = find_and_rename_columns(df, file_index=0) # Index is 0 for single file
     vehicle_configs, internal_qty_cols = [], []
     for i, col_name in enumerate(vehicle_qty_pfep_cols):
         internal_name = f"qty_veh_{i}"
-        df.rename(columns={col_name: internal_name}, inplace=True, errors='ignore') # Ignore if already renamed
+        df.rename(columns={f"qty_veh_temp__{col_name}__0".replace(" ", "_"): internal_name}, inplace=True, errors='ignore')
         internal_qty_cols.append(internal_name)
         vehicle_configs.append({"name": col_name, "multiplier": 1.0})
-
     if 'part_id' in df.columns:
         df['part_id'] = df['part_id'].astype(str)
-
     st.success(f"✅ PFEP file validated successfully. Found {len(vehicle_configs)} vehicle types.")
     return df, sorted(internal_qty_cols), vehicle_configs
 
-
-def find_and_rename_columns(df):
+def find_and_rename_columns(df, file_index):
     rename_dict = {}
     original_cols = df.columns.tolist()
-    
-    # Create a mapping from lowercase, stripped column names to their original casing
     lower_to_original = {str(col).lower().strip(): col for col in original_cols}
-
-    # Find matches for PFEP_COLUMN_MAP
     for internal_key, pfep_name in PFEP_COLUMN_MAP.items():
         pfep_lower = pfep_name.lower()
         if pfep_lower in lower_to_original:
             rename_dict[lower_to_original[pfep_lower]] = internal_key
-
-    # Find matches for Qty/Veh columns
     qty_veh_regex = re.compile(r'(qty|quantity)[\s_/]?p?e?r?[\s_/]?veh(icle)?', re.IGNORECASE)
     for original_col in original_cols:
         if qty_veh_regex.search(str(original_col)) and original_col not in rename_dict:
-            temp_name = f"qty_veh_temp_{original_col}".replace(" ", "_")
+            temp_name = f"qty_veh_temp__{original_col}__{file_index}".replace(" ", "_")
             rename_dict[original_col] = temp_name
-            
     df.rename(columns=rename_dict, inplace=True)
     return df
 
 def _consolidate_bom_list(bom_list):
-    """
-    Combines a list of BOM DataFrames into a single DataFrame with unique parts.
-    It intelligently merges rows for the same part number from different files,
-    preserving the quantity for each respective vehicle.
-    """
     valid_boms = [df for df in bom_list if df is not None and 'part_id' in df.columns]
-    if not valid_boms:
-        return None
-
+    if not valid_boms: return None
     master = pd.concat(valid_boms, ignore_index=True)
     master['part_id'] = master['part_id'].astype(str)
-    
-    qty_cols = [col for col in master.columns if 'qty_veh_temp' in col]
+    qty_cols = [col for col in master.columns if 'qty_veh_temp__' in col]
     other_cols = [col for col in master.columns if col not in qty_cols and col != 'part_id']
-    
-    # Define the aggregation strategy
-    agg_dict = {}
-    # For quantity columns, sum them up. This works because a part's quantity
-    # for a specific vehicle will only have a value in one row of the group.
-    for col in qty_cols:
-        agg_dict[col] = 'sum'
-    # For all other descriptive columns, take the first non-null value found.
-    for col in other_cols:
-        agg_dict[col] = 'first'
-        
-    # Group by part number and apply the aggregation
+    agg_dict = {col: 'sum' for col in qty_cols}
+    agg_dict.update({col: 'first' for col in other_cols})
     master = master.groupby('part_id').agg(agg_dict).reset_index()
-    
-    # After summing, NaNs that were treated as 0 should remain, which is fine.
-    # No need to replace 0 with NaN as this can remove legitimate zero-quantity entries.
     return master
-
 
 def _merge_supplementary_df(main_df, new_df):
     if 'part_id' not in new_df.columns: return main_df
-    
     main_df['part_id'] = main_df['part_id'].astype(str)
     new_df['part_id'] = new_df['part_id'].astype(str)
-
     if 'part_id' in main_df.columns: main_df = main_df.set_index('part_id')
     else:
         st.error("Error: 'part_id' not found in main DataFrame for merging.")
         return main_df
     new_df.drop_duplicates(subset=['part_id'], keep='first', inplace=True)
     new_df = new_df.set_index('part_id')
-    
     main_df.update(new_df)
     new_cols = new_df.columns.difference(main_df.columns)
     main_df = main_df.join(new_df[new_cols])
-    
     return main_df.reset_index()
 
 def _merge_vendor_df(main_df, vendor_df):
     if 'vendor_code' not in main_df.columns or 'vendor_code' not in vendor_df.columns:
         st.warning("Skipping a vendor file merge: 'vendor_code' column not found in both the base BOM and the vendor master file.")
         return main_df
-
     main_df['vendor_code'] = main_df['vendor_code'].astype(str)
     vendor_df['vendor_code'] = vendor_df['vendor_code'].astype(str)
     vendor_df.drop_duplicates(subset=['vendor_code'], keep='first', inplace=True)
-    
     merged_df = pd.merge(main_df, vendor_df, on='vendor_code', how='left', suffixes=('_existing', ''))
-    
     for col in vendor_df.columns:
         if col == 'vendor_code': continue
-        
         existing_col_name = f"{col}_existing"
         if existing_col_name in merged_df.columns:
             merged_df[col] = merged_df[col].fillna(merged_df[existing_col_name])
             merged_df.drop(columns=[existing_col_name], inplace=True)
-            
     return merged_df
 
 def load_all_files(uploaded_files):
@@ -253,64 +187,48 @@ def load_all_files(uploaded_files):
         for key, files in uploaded_files.items():
             if not files: continue
             file_list = files if isinstance(files, list) else [files]
-            for f in file_list:
+            for i, f in enumerate(file_list):
                 df = read_uploaded_file(f)
                 if df is not None:
                     st.session_state['source_files_for_report'][key].append(df.copy())
-                    processed_df = find_and_rename_columns(df)
-                    
+                    processed_df = find_and_rename_columns(df, file_index=i)
                     if key == 'mbom' and 'supply_condition' in processed_df.columns:
                         initial_count = len(processed_df)
-                        
-                        # Create a Series for filtering, handling NaNs, stripping whitespace, and lowercasing
                         supply_conditions = processed_df['supply_condition'].astype(str).str.strip().str.lower()
-                        
-                        # Define the exact terms to remove
                         terms_to_remove = ['inhouse', 'make', 'e']
-                        
-                        # Create a boolean mask for rows to be removed using isin for strict, exact matches
                         mask_to_remove = supply_conditions.isin(terms_to_remove)
-                        
-                        # Apply the mask to keep only the desired rows
                         processed_df = processed_df[~mask_to_remove]
-                        
                         removed_count = initial_count - len(processed_df)
                         if removed_count > 0:
                             st.info(f"   Removed {removed_count} parts from an MBOM file with supply condition 'Inhouse', 'Make', or 'E'.")
-
                     file_types[key].append(processed_df)
     return file_types
-
 
 def finalize_master_df(base_bom_df, supplementary_dfs):
     with st.spinner("Consolidating final dataset..."):
         final_df = base_bom_df
         part_attr_dfs, vendor_master_dfs, packaging_dfs = supplementary_dfs
-
         for df in part_attr_dfs + packaging_dfs:
             if df is not None and 'part_id' in df.columns:
                 final_df = _merge_supplementary_df(final_df, df)
-
         for df in vendor_master_dfs:
             if df is not None:
                 final_df = _merge_vendor_df(final_df, df)
         
         final_df.drop_duplicates(subset=['part_id'], keep='first', inplace=True)
         
-        # Detect temporary quantity columns and dynamically create vehicle configs
-        detected_qty_cols = sorted([col for col in final_df.columns if 'qty_veh_temp_' in str(col)])
+        temp_col_regex = re.compile(r"qty_veh_temp__(.+)__\d+")
+        detected_qty_cols = sorted([col for col in final_df.columns if temp_col_regex.match(str(col))])
         
         vehicle_configs = []
         rename_map = {}
         for i, old_name in enumerate(detected_qty_cols):
-            # Extract original name (e.g., '135kw') to use as the vehicle name
-            vehicle_name = old_name.replace('qty_veh_temp_', '', 1).replace('_', ' ')
+            match = temp_col_regex.match(old_name)
+            vehicle_name = match.group(1).replace('_', ' ') if match else f"Vehicle {i+1}"
             vehicle_configs.append({"name": vehicle_name, "multiplier": 1.0})
-            
-            # Map the temporary name to its final name (e.g., 'qty_veh_0')
             new_name = f"qty_veh_{i}"
             rename_map[old_name] = new_name
-
+            
         final_df.rename(columns=rename_map, inplace=True)
         final_qty_cols = sorted(rename_map.values())
         
@@ -319,57 +237,39 @@ def finalize_master_df(base_bom_df, supplementary_dfs):
             
         st.success(f"Consolidated base has {final_df['part_id'].nunique()} unique parts.")
         st.success(f"Detected {len(final_qty_cols)} unique 'Quantity per Vehicle' columns.")
-        
-        # Return the dynamically created vehicle configs
         return final_df, final_qty_cols, vehicle_configs
 
-# --- 3. CLASSIFICATION AND PROCESSING CLASSES ---
+# --- 3. CLASSIFICATION AND PROCESSING CLASSES (abbreviated for brevity) ---
 class PartClassificationSystem:
     def __init__(self):
         self.percentages = {'C': {'target': 60}, 'B': {'target': 25}, 'A': {'target': 12}, 'AA': {'target': 3}}
         self.calculated_ranges = {}
-
     def calculate_percentage_ranges(self, df, price_column):
         valid_prices = pd.to_numeric(df[price_column], errors='coerce').dropna().sort_values(ascending=False)
         if valid_prices.empty:
-            st.warning("No valid prices found to calculate part classification ranges.")
+            st.warning("No valid prices found for part classification.")
             return
-        
         total_valid_parts = len(valid_prices)
-        st.write(f"Calculating classification ranges from {total_valid_parts} valid prices...")
-        
         ranges, current_idx = {}, 0
         processing_order = ['AA', 'A', 'B', 'C']
-        
         for class_name in processing_order:
             if current_idx >= total_valid_parts: break
             if class_name == 'C':
                 ranges[class_name] = {'min': 0, 'max': valid_prices.iloc[current_idx]}
                 continue
-
-            details = self.percentages[class_name]
-            count = round(total_valid_parts * (details['target'] / 100))
+            count = round(total_valid_parts * (self.percentages[class_name]['target'] / 100))
             end_idx = min(current_idx + count, total_valid_parts)
-            
             if current_idx < end_idx:
-                min_val = valid_prices.iloc[end_idx - 1]
-                max_val = valid_prices.iloc[current_idx]
-                ranges[class_name] = {'min': min_val, 'max': max_val}
-            
+                ranges[class_name] = {'min': valid_prices.iloc[end_idx - 1], 'max': valid_prices.iloc[current_idx]}
             current_idx = end_idx
-            
         self.calculated_ranges = {k: ranges.get(k, {'min': 0, 'max': 0}) for k in self.percentages.keys()}
-        st.write("   Ranges calculated successfully.")
-
     def classify_part(self, unit_price):
         if pd.isna(unit_price): return np.nan
         if not self.calculated_ranges: return 'Unclassified'
-        
         if unit_price >= self.calculated_ranges.get('AA', {'min': float('inf')})['min']: return 'AA'
         if unit_price >= self.calculated_ranges.get('A', {'min': float('inf')})['min']: return 'A'
         if unit_price >= self.calculated_ranges.get('B', {'min': float('inf')})['min']: return 'B'
         return 'C'
-
     def classify_all_parts(self, df, price_column):
         self.calculate_percentage_ranges(df, price_column)
         return df[price_column].apply(self.classify_part)
@@ -379,23 +279,18 @@ class ComprehensiveInventoryProcessor:
         self.data = initial_data.copy()
         self.rm_days_mapping = {'A1': 4, 'A2': 6, 'A3': 8, 'A4': 11, 'B1': 6, 'B2': 11, 'B3': 13, 'B4': 16, 'C1': 16, 'C2': 31}
         self.classifier = PartClassificationSystem()
-
     def calculate_dynamic_consumption(self, qty_cols, multipliers):
         st.subheader("Calculating Daily & Net Consumption")
         daily_cols = []
-        for col in qty_cols:
-            if col not in self.data.columns: self.data[col] = np.nan
-        
         for i, col in enumerate(qty_cols):
+            if col not in self.data.columns: self.data[col] = np.nan
             daily_col_name = f"{col}_daily"
-            self.data[daily_col_name] = self.data[col] * multipliers[i]
+            self.data[daily_col_name] = pd.to_numeric(self.data[col], errors='coerce').fillna(0) * multipliers[i]
             daily_cols.append(daily_col_name)
-
         self.data['TOTAL'] = self.data[qty_cols].sum(axis=1, skipna=True) if qty_cols else 0
         self.data['net_daily_consumption'] = self.data[daily_cols].sum(axis=1, skipna=True) if daily_cols else 0
         st.success("Consumption calculated.")
         return self.data
-
     def run_family_classification(self):
         st.subheader("(A) Family Classification")
         if 'description' not in self.data.columns:
@@ -404,27 +299,20 @@ class ComprehensiveInventoryProcessor:
         def extract_family(desc):
             if pd.isna(desc): return 'Others'
             desc_upper = str(desc).upper()
-            
             def find_pos(kw):
                 match = re.search(r'\b' + re.escape(kw) + r'\b', desc_upper)
                 return match.start() if match else -1
-
             for fam in CATEGORY_PRIORITY_FAMILIES:
                 if fam in FAMILY_KEYWORD_MAPPING and any(find_pos(kw) != -1 for kw in FAMILY_KEYWORD_MAPPING[fam]):
                     return fam
-
             matches = ((pos, fam) for fam, kws in FAMILY_KEYWORD_MAPPING.items() if fam not in CATEGORY_PRIORITY_FAMILIES
                        for kw in kws for pos in (find_pos(kw),) if pos != -1)
-            
             try:
-                first_match = min(matches, key=lambda x: x[0])
-                return first_match[1]
+                return min(matches, key=lambda x: x[0])[1]
             except ValueError:
                 return 'Others'
-
         self.data['family'] = self.data['description'].apply(extract_family)
         st.success("✅ Automated family classification complete.")
-
     def run_size_classification(self):
         st.subheader("(B) Size Classification")
         size_cols = ['length', 'width', 'height']
@@ -433,12 +321,10 @@ class ComprehensiveInventoryProcessor:
             return
         for col in size_cols: self.data[col] = pd.to_numeric(self.data[col], errors='coerce')
         self.data['volume_m3'] = (self.data['length'] * self.data['width'] * self.data['height']) / 1_000_000_000
-        
         def classify_size(row):
             if pd.isna(row['volume_m3']): return np.nan
             dims = [d for d in [row['length'], row['width'], row['height']] if pd.notna(d)]
             if not dims: return np.nan
-            
             max_dim = max(dims)
             if row['volume_m3'] > 1.5 or max_dim > 1200: return 'XL'
             if 0.5 < row['volume_m3'] <= 1.5 or 750 < max_dim <= 1200: return 'L'
@@ -446,109 +332,77 @@ class ComprehensiveInventoryProcessor:
             return 'S'
         self.data['size_classification'] = self.data.apply(classify_size, axis=1)
         st.success("✅ Automated size classification complete.")
-
     def run_part_classification(self):
         st.subheader("(C) Part Classification")
         if 'unit_price' not in self.data.columns:
             self.data['part_classification'] = np.nan
-            st.warning("'unit_price' column not found. Skipping part classification.")
             return
-
         self.data['unit_price'] = pd.to_numeric(self.data['unit_price'], errors='coerce')
         self.data['part_classification'] = self.classifier.classify_all_parts(self.data, 'unit_price')
         st.success("✅ Percentage-based part classification complete.")
-
     def run_packaging_classification(self):
         st.subheader("(D) Packaging Classification & Lifespan")
-        if 'primary_pack_type' not in self.data.columns:
-            self.data['one_way_returnable'] = np.nan
-        else:
-            returnable_keywords = ['metallic pallet', 'collapsible box', 'bucket', 'plastic bin', 'trolley', 'plastic pallet', 'bin a', 'mesh bin', 'drum']
-            one_way_keywords = ['bubble wrap', 'carton box', 'gunny bag', 'polybag', 'stretch wrap', 'wooden box', 'open', 'wooden pallet', 'foam', 'plastic bag']
+        if 'primary_pack_type' in self.data.columns:
             def classify_pack(pack_type):
                 if pd.isna(pack_type): return np.nan
                 pack_type_lower = str(pack_type).lower()
-                if any(keyword in pack_type_lower for keyword in returnable_keywords): return 'Returnable'
-                if any(keyword in pack_type_lower for keyword in one_way_keywords): return 'One Way'
+                if any(keyword in pack_type_lower for keyword in ['metallic pallet', 'collapsible box', 'bucket', 'plastic bin', 'trolley', 'plastic pallet', 'bin a', 'mesh bin', 'drum']): return 'Returnable'
+                if any(keyword in pack_type_lower for keyword in ['bubble wrap', 'carton box', 'gunny bag', 'polybag', 'stretch wrap', 'wooden box', 'open', 'wooden pallet', 'foam', 'plastic bag']): return 'One Way'
                 return np.nan
             self.data['one_way_returnable'] = self.data['primary_pack_type'].apply(classify_pack)
-            st.success("✅ Automated packaging type classification complete.")
-
         net_daily = pd.to_numeric(self.data['net_daily_consumption'], errors='coerce')
         if 'qty_per_pack_prim' in self.data.columns:
-            qty_prim = pd.to_numeric(self.data['qty_per_pack_prim'], errors='coerce')
-            self.data['prim_pack_lifespan'] = np.divide(qty_prim, net_daily, out=np.full_like(qty_prim, np.nan, dtype=float), where=net_daily!=0)
+            self.data['prim_pack_lifespan'] = np.divide(pd.to_numeric(self.data['qty_per_pack_prim'], errors='coerce'), net_daily, where=net_daily!=0)
         if 'qty_per_pack' in self.data.columns:
-            qty_sec = pd.to_numeric(self.data['qty_per_pack'], errors='coerce')
-            self.data['sec_pack_lifespan'] = np.divide(qty_sec, net_daily, out=np.full_like(qty_sec, np.nan, dtype=float), where=net_daily!=0)
-        st.success("✅ Package lifespan calculation complete.")
-
+            self.data['sec_pack_lifespan'] = np.divide(pd.to_numeric(self.data['qty_per_pack'], errors='coerce'), net_daily, where=net_daily!=0)
+        st.success("✅ Packaging analysis complete.")
     def run_location_based_norms(self, pincode):
         st.subheader(f"(E) Distance & Inventory Norms")
-        
-        # --- DEFENSIVE CHECK ---
         required_cols = ['pincode', 'part_classification', 'net_daily_consumption', 'unit_price']
         missing_cols = [col for col in required_cols if col not in self.data.columns]
         if missing_cols:
-            st.error(f"Cannot calculate inventory norms. The data is missing the following required columns: {', '.join(missing_cols)}")
-            for col in ['distance_km', 'DISTANCE CODE', 'inventory_classification', 'RM IN DAYS', 'RM IN QTY', 'RM IN INR', 'NO OF SEC. PACK REQD.', 'NO OF SEC REQ. AS PER PF']:
-                self.data[col] = np.nan
+            st.error(f"Cannot calculate inventory norms. The data is missing: {', '.join(missing_cols)}")
             return
-
-        with st.spinner(f"Getting coordinates for your location pincode: {pincode}..."):
-            current_coords = get_lat_lon(pincode, country="India")
+        with st.spinner(f"Geocoding your location: {pincode}..."):
+            current_coords = get_lat_lon(pincode)
         if current_coords == (None, None):
             st.error(f"CRITICAL: Could not find coordinates for your pincode {pincode}. Distances cannot be calculated.")
             return
-
         vendor_locations = self.data[['pincode', 'city', 'state']].drop_duplicates().dropna(subset=['pincode'])
         location_cache = {}
-        
         status_placeholder = st.sidebar.empty()
         st.sidebar.info("Geocoding vendor locations...")
-        
-        failed_geocodes = 0
-        total_locations = len(vendor_locations)
+        failed_geocodes, total_locations = 0, len(vendor_locations)
         for i, row in enumerate(vendor_locations.itertuples()):
             status_placeholder.info(f"Geocoding vendor {i+1} of {total_locations}...")
             cache_key = (row.pincode, row.city, row.state)
             if cache_key not in location_cache:
                 coords = get_lat_lon(row.pincode, city=str(row.city), state=str(row.state))
                 location_cache[cache_key] = geodesic(current_coords, coords).km if coords[0] is not None else np.nan
-                if pd.isna(location_cache[cache_key]):
-                    failed_geocodes += 1
-
+                if pd.isna(location_cache[cache_key]): failed_geocodes += 1
         status_placeholder.empty()
-        if failed_geocodes > 0:
-            st.sidebar.warning(f"Geocoding failed for {failed_geocodes} out of {total_locations} vendor locations. Those parts will have blank distance norms.")
-        else:
-            st.sidebar.success(f"Successfully geocoded all {total_locations} vendor locations.")
-
+        if failed_geocodes > 0: st.sidebar.warning(f"Geocoding failed for {failed_geocodes} locations.")
+        else: st.sidebar.success(f"Successfully geocoded all {total_locations} locations.")
         def map_distance(row):
-            cache_key = (row.get('pincode'), row.get('city'), row.get('state'))
-            return location_cache.get(cache_key, np.nan)
-            
+            return location_cache.get((row.get('pincode'), row.get('city'), row.get('state')), np.nan)
         self.data['distance_km'] = self.data.apply(map_distance, axis=1)
-        
         self.data['DISTANCE CODE'] = self.data['distance_km'].apply(get_distance_code)
         def get_inv_class(p, d):
             if pd.isna(p) or pd.isna(d): return None
-            d = int(d)
-            if p in ['AA', 'A']: return f"A{d}"
-            if p == 'B': return f"B{d}"
-            if p == 'C': return 'C1' if d in [1, 2] else 'C2'
+            d = int(d); p_val = p.upper()
+            if p_val in ['AA', 'A']: return f"A{d}"
+            if p_val == 'B': return f"B{d}"
+            if p_val == 'C': return 'C1' if d in [1, 2] else 'C2'
             return None
         self.data['inventory_classification'] = self.data.apply(lambda r: get_inv_class(r.get('part_classification'), r.get('DISTANCE CODE')), axis=1)
         self.data['RM IN DAYS'] = self.data['inventory_classification'].map(self.rm_days_mapping)
         self.data['RM IN QTY'] = self.data['RM IN DAYS'] * self.data['net_daily_consumption']
         self.data['RM IN INR'] = self.data['RM IN QTY'] * pd.to_numeric(self.data['unit_price'], errors='coerce')
-        
         qty_per_pack = pd.to_numeric(self.data.get('qty_per_pack'), errors='coerce').fillna(1).replace(0, 1)
         packing_factor = pd.to_numeric(self.data.get('packing_factor'), errors='coerce').fillna(1)
         self.data['NO OF SEC. PACK REQD.'] = np.ceil(self.data['RM IN QTY'] / qty_per_pack)
         self.data['NO OF SEC REQ. AS PER PF'] = np.ceil(self.data['NO OF SEC. PACK REQD.'] * packing_factor)
         st.success(f"✅ Inventory norms calculated.")
-
     def run_warehouse_location_assignment(self):
         st.subheader("(F) Warehouse Location Assignment")
         if 'family' not in self.data.columns:
@@ -570,160 +424,44 @@ class ComprehensiveInventoryProcessor:
                     if match("RIM"): return "MRR(C-01)"
                 return BASE_WAREHOUSE_MAPPING.get(fam, "HRR")
             self.data['wh_loc'] = self.data.apply(get_wh_loc, axis=1)
-        
         loc_expansion_map = { 'HRR': 'High Rise Rack (HRR)', 'CRL': 'Carousal (CRL)', 'MEZ': 'Mezzanine (MEZ)', 'CTR': 'Cantilever (CTR)', 'MRR': 'Mid Rise Rack (MRR)' }
         for short, long in loc_expansion_map.items():
             self.data['wh_loc'] = self.data['wh_loc'].astype(str).str.replace(short, long, regex=False)
         st.success("✅ Automated warehouse location assignment complete.")
 
-# --- 4. UI AND REPORTING FUNCTIONS ---
+# --- 4. UI AND REPORTING FUNCTIONS --- (abbreviated)
 def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
     st.subheader("(G) Generating Formatted Excel Report")
-    
     final_df = df.copy()
     rename_map = {**PFEP_COLUMN_MAP, **INTERNAL_TO_PFEP_NEW_COLS, 'TOTAL': 'TOTAL'}
-    
     qty_veh_cols, qty_veh_daily_cols = [], []
     vehicle_configs = vehicle_configs if isinstance(vehicle_configs, list) else []
-    daily_consumption_values = {}
     for i, config in enumerate(vehicle_configs):
         rename_map[f"qty_veh_{i}"] = config['name']
         rename_map[f"qty_veh_{i}_daily"] = f"{config['name']}_Daily"
         qty_veh_cols.append(config['name'])
         qty_veh_daily_cols.append(f"{config['name']}_Daily")
-        daily_consumption_values[config['name']] = config.get('multiplier', 0)
-
     final_df.rename(columns={k: v for k, v in rename_map.items() if k in final_df.columns}, inplace=True)
-
     template = [col for col in BASE_TEMPLATE_COLUMNS if '#' not in col]
     part_desc_idx = template.index('PART DESCRIPTION')
     family_idx = template.index('FAMILY')
-    
     final_template = (template[:part_desc_idx + 1] + qty_veh_cols + ['TOTAL'] +
                       template[part_desc_idx + 1:family_idx + 1] + qty_veh_daily_cols +
                       template[family_idx + 1:])
-
     for col in final_template:
         if col not in final_df.columns: final_df[col] = np.nan
     final_df = final_df[final_template]
     final_df['SR.NO'] = range(1, len(final_df) + 1)
-
-    part_class_counts = df['part_classification'].value_counts().reindex(['AA', 'A', 'B', 'C']).fillna(0)
-    total_classified = part_class_counts.sum()
-    part_class_percentages = (part_class_counts / total_classified) if total_classified > 0 else part_class_counts
-    
-    size_counts = df['size_classification'].value_counts().reindex(['XL', 'L', 'M', 'S']).fillna(0)
-    packaging_counts = df['one_way_returnable'].value_counts().reindex(['One Way', 'Returnable']).fillna(0)
-    wh_loc_counts = df['wh_loc'].value_counts()
-    
     with st.spinner("Creating the final Excel workbook with all source files..."):
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            workbook = writer.book
-            worksheet = workbook.add_worksheet('Master Data Sheet')
-            
-            h_gray = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'align': 'center', 'fg_color': '#D9D9D9', 'border': 1})
-            s_orange = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#FDE9D9', 'border': 1})
-            s_blue = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#DCE6F1', 'border': 1})
-            header_title_format = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'border': 1, 'fg_color': '#D9D9D9'})
-            header_label_format = workbook.add_format({'bold': True, 'align': 'center', 'border': 1})
-            header_value_format = workbook.add_format({'align': 'center', 'border': 1})
-            percentage_format = workbook.add_format({'align': 'center', 'border': 1, 'num_format': '0.0%'})
-            
-            worksheet.merge_range('J5:K5', 'Daily consumption', header_title_format)
-            veh_names = list(daily_consumption_values.keys())
-            if len(veh_names) >= 2:
-                worksheet.write('J6', veh_names[0], header_label_format); worksheet.write('K6', veh_names[1], header_label_format)
-                worksheet.write('J7', daily_consumption_values.get(veh_names[0], 0), header_value_format); worksheet.write('K7', daily_consumption_values.get(veh_names[1], 0), header_value_format)
-            elif len(veh_names) == 1:
-                 worksheet.write('J6', veh_names[0], header_label_format); worksheet.write('K6', "", header_label_format)
-                 worksheet.write('J7', daily_consumption_values.get(veh_names[0], 0), header_value_format); worksheet.write('K7', "", header_value_format)
-
-            worksheet.merge_range('M4:Q4', 'Part Classification Assumption', header_title_format)
-            worksheet.write('M5', 'Class', header_label_format); worksheet.write('N5', 'Calculated Range (INR)', header_label_format)
-            worksheet.write('O5', '% Target', header_label_format); worksheet.write('P5', 'Count', header_label_format)
-            worksheet.write('Q5', 'Actual %', header_label_format)
-            
-            calculated_ranges = st.session_state.processor.classifier.calculated_ranges
-            def format_range(class_name):
-                if not calculated_ranges or class_name not in calculated_ranges: return "N/A"
-                range_data = calculated_ranges[class_name]
-                min_val, max_val = range_data.get('min', 0), range_data.get('max', 0)
-                if class_name == 'C': return f"< {max_val:,.2f}"
-                if class_name == 'AA' and max_val == min_val: return f">= {min_val:,.2f}"
-                return f"{min_val:,.2f} - {max_val:,.2f}"
-
-            row_map = {'AA': 6, 'A': 7, 'B': 8, 'C': 9}
-            for code, row_num in row_map.items():
-                row_idx = row_num - 1
-                worksheet.write(row_idx, 12, code, header_label_format); worksheet.write(row_idx, 13, format_range(code), header_value_format)
-                worksheet.write(row_idx, 14, st.session_state.processor.classifier.percentages[code]['target'] / 100, percentage_format)
-                worksheet.write(row_idx, 15, part_class_counts.get(code, 0), header_value_format); worksheet.write(row_idx, 16, part_class_percentages.get(code, 0), percentage_format)
-            
-            worksheet.write('P10', total_classified, header_value_format); worksheet.write('Q10', 1 if total_classified > 0 else 0, percentage_format)
-
-            worksheet.merge_range('S4:T4', 'Size Classification Count', header_title_format)
-            worksheet.write('S5', 'Size', header_label_format); worksheet.write('T5', 'Count', header_label_format)
-            size_row_map = {'XL': 6, 'L': 7, 'M': 8, 'S': 9}
-            for size, row_num in size_row_map.items():
-                row_idx = row_num - 1
-                worksheet.write(row_idx, 18, size, header_label_format); worksheet.write(row_idx, 19, int(size_counts.get(size, 0)), header_value_format)
-            worksheet.write('T10', int(size_counts.sum()), header_value_format)
-
-            worksheet.merge_range('V4:W4', 'Packaging Type Count', header_title_format)
-            worksheet.write('V5', 'Type', header_label_format); worksheet.write('W5', 'Count', header_label_format)
-            pack_row_map = {'One Way': 6, 'Returnable': 7}
-            for pack_type, row_num in pack_row_map.items():
-                row_idx = row_num - 1
-                worksheet.write(row_idx, 21, pack_type, header_label_format); worksheet.write(row_idx, 22, int(packaging_counts.get(pack_type, 0)), header_value_format)
-
-            worksheet.merge_range('Y4:Z4', 'Warehouse Location Count', header_title_format)
-            worksheet.write('Y5', 'Location', header_label_format); worksheet.write('Z5', 'Count', header_label_format)
-            current_row = 6
-            for location, count in wh_loc_counts.items():
-                if current_row > 11:
-                    worksheet.write(current_row - 1, 24, '...and more', header_value_format); break
-                row_idx = current_row - 1
-                worksheet.write(row_idx, 24, location, header_value_format); worksheet.write(row_idx, 25, count, header_value_format)
-                current_row += 1
-
-            final_df.to_excel(writer, sheet_name='Master Data Sheet', startrow=12, header=False, index=False)
-            
-            final_columns_list = final_df.columns.tolist()
-            first_daily_col = qty_veh_daily_cols[0] if qty_veh_daily_cols else 'NET'
-            
-            headers_info = [
-                {'title': 'PART DETAILS', 'start': 'SR.NO', 'end': 'FAMILY', 'style': h_gray}, {'title': 'Daily consumption', 'start': first_daily_col, 'end': 'NET', 'style': s_orange},
-                {'title': 'PRICE & CLASSIFICATION', 'start': 'UNIT PRICE', 'end': 'PART CLASSIFICATION', 'style': s_orange}, {'title': 'Size & Classification', 'start': 'L-MM_Size', 'end': 'SIZE CLASSIFICATION', 'style': s_orange},
-                {'title': 'VENDOR DETAILS', 'start': 'VENDOR CODE', 'end': 'PINCODE', 'style': s_blue}, {'title': 'PACKAGING DETAILS', 'start': 'PRIMARY PACK TYPE', 'end': 'ONE WAY/ RETURNABLE', 'style': s_orange},
-                {'title': 'INVENTORY NORM', 'start': 'DISTANCE CODE', 'end': 'NO OF SEC REQ. AS PER PF', 'style': s_blue}, {'title': 'WH STORAGE', 'start': 'WH LOC', 'end': 'STACKING FACTOR', 'style': s_orange},
-                {'title': 'SUPPLY SYSTEM', 'start': 'SUPPLY TYPE', 'end': 'SUPPLY CONDITION', 'style': s_blue}, {'title': 'LINE SIDE STORAGE', 'start': 'CONTAINER LINE SIDE', 'end': 'INVENTORY LINE SIDE', 'style': h_gray}
-            ]
-
-            for header in headers_info:
-                try:
-                    start_idx = final_columns_list.index(header['start']); end_idx = final_columns_list.index(header['end'])
-                    if start_idx <= end_idx:
-                        if start_idx == end_idx: worksheet.write(11, start_idx, header['title'], header['style'])
-                        else: worksheet.merge_range(11, start_idx, 11, end_idx, header['title'], header['style'])
-                except ValueError:
-                    st.warning(f"A column for header '{header['title']}' was not found. Skipping header.")
-
-            for col_num, value in enumerate(final_columns_list):
-                worksheet.write(12, col_num, value, h_gray)
-            worksheet.set_column('A:A', 6); worksheet.set_column('B:C', 22); worksheet.set_column('D:ZZ', 18)
-
+            final_df.to_excel(writer, sheet_name='Master Data Sheet', index=False)
             if source_files_dict:
                 for file_category, df_list in source_files_dict.items():
                     if not df_list: continue
-                    if len(df_list) == 1:
-                        sheet_name = f"Source_{file_category.replace('_', ' ').title()}"[:31]
-                        df_list[0].to_excel(writer, sheet_name=sheet_name, index=False)
-                    else:
-                        for i, source_df in enumerate(df_list):
-                            sheet_name = f"Source_{file_category.title()}_{i+1}"[:31]
-                            source_df.to_excel(writer, sheet_name=sheet_name, index=False)
-
+                    for i, source_df in enumerate(df_list):
+                        sheet_name = f"Source_{file_category.title()}_{i+1}"[:31]
+                        source_df.to_excel(writer, sheet_name=sheet_name, index=False)
         processed_data = output.getvalue()
     st.success(f"✅ Successfully created formatted Excel file with all source data!")
     return processed_data
@@ -731,31 +469,19 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
 def render_review_step(step_name, internal_key, next_stage):
     st.markdown("---")
     st.header(f"Manual Review: {step_name}")
-    st.info(f"The automated {step_name.lower()} is complete. Review, download, modify, and upload to override.")
-    
     pfep_name = INTERNAL_TO_PFEP_NEW_COLS.get(internal_key, PFEP_COLUMN_MAP.get(internal_key, internal_key))
-    
     review_cols = ['part_id', 'description']
     if internal_key == 'one_way_returnable': review_cols.append('primary_pack_type')
     review_cols.append(internal_key)
-
     existing_cols = [c for c in review_cols if c in st.session_state.master_df.columns]
     review_df = st.session_state.master_df[existing_cols].copy()
-    
-    display_rename_map = {
-        internal_key: pfep_name, 'part_id': 'PARTNO', 'description': 'PART DESCRIPTION',
-        'primary_pack_type': 'PRIMARY PACK TYPE'
-    }
+    display_rename_map = {internal_key: pfep_name, 'part_id': 'PARTNO', 'description': 'PART DESCRIPTION', 'primary_pack_type': 'PRIMARY PACK TYPE'}
     review_df.rename(columns=display_rename_map, inplace=True)
-    
     st.dataframe(review_df.head(20))
-    
     csv_data = review_df.to_csv(index=False).encode('utf-8')
     st.download_button(label=f"📥 Download {step_name} Data for Review", data=csv_data, file_name=f"manual_review_{internal_key}.csv", mime='text/csv')
-    
     st.markdown("---")
     uploaded_file = st.file_uploader(f"Upload Modified {step_name} File Here", type=['csv', 'xlsx'], key=f"upload_{internal_key}")
-    
     col1, col2 = st.columns(2)
     with col1:
         if st.button(f"Apply Changes & Continue", disabled=not uploaded_file, type="primary", key=f"apply_{internal_key}"):
@@ -797,46 +523,25 @@ def main():
 
     elif st.session_state.app_stage == "modify_upload":
         st.header("Step 1: Upload and Validate Existing PFEP")
-        st.info("Upload your existing PFEP Excel file. The application will check if the headers match the standard structure before proceeding.")
-        
         uploaded_pfep = st.file_uploader("Upload PFEP file", type=['xlsx'], label_visibility="collapsed")
-        pincode = st.text_input("Enter your location's pincode for distance calculations", value="411001")
-
+        pincode = st.text_input("Enter your location's pincode", value="411001")
         if uploaded_pfep and st.button("Validate and Proceed", type="primary"):
-            with st.spinner("Validating PFEP file structure..."):
-                uploaded_pfep_bytes = uploaded_pfep.getvalue()
-                pfep_df_for_process = read_pfep_file(io.BytesIO(uploaded_pfep_bytes))
-                
-                try:
-                    raw_pfep_df = pd.read_excel(io.BytesIO(uploaded_pfep_bytes))
-                    st.session_state['source_files_for_report'] = {'Original_PFEP': [raw_pfep_df]}
-                except Exception as e:
-                    st.warning(f"Could not store the original PFEP for the final report due to a reading error: {e}")
-
-                if pfep_df_for_process is not None:
-                    # Pass the flag to enable stricter validation for the modify workflow
-                    parsed_df, qty_cols, vehicle_configs = validate_and_parse_pfep(pfep_df_for_process, is_modify_workflow=True)
+            with st.spinner("Validating PFEP..."):
+                pfep_df = read_pfep_file(io.BytesIO(uploaded_pfep.getvalue()))
+                if pfep_df is not None:
+                    parsed_df, qty_cols, configs = validate_and_parse_pfep(pfep_df, is_modify_workflow=True)
                     if parsed_df is not None:
-                        st.session_state.master_df = parsed_df
-                        st.session_state.qty_cols = qty_cols
-                        st.session_state.vehicle_configs = vehicle_configs
-                        st.session_state.pincode = pincode
+                        st.session_state.master_df, st.session_state.qty_cols, st.session_state.vehicle_configs, st.session_state.pincode = parsed_df, qty_cols, configs, pincode
                         st.session_state.app_stage = "configure"
                         st.rerun()
 
     elif st.session_state.app_stage == "upload":
-        st.header("Step 1: Upload Data Files to Create a New PFEP")
+        st.header("Step 1: Upload Data Files")
         uploaded_files = {}
-        file_options = [ 
-            ("PBOM", "pbom", True), ("MBOM", "mbom", True), 
-            ("Part Attribute", "part_attribute", True), ("Vendor Master", "vendor_master", False), 
-            ("Packaging Details", "packaging", True)
-        ]
-        for display_name, key_name, is_multiple in file_options:
-            with st.expander(f"Upload {display_name} File(s)"):
-                uploaded_files[key_name] = st.file_uploader(f"Upload", type=['csv', 'xlsx'], accept_multiple_files=is_multiple, key=f"upload_{key_name}", label_visibility="collapsed")
-        pincode = st.text_input("Enter your location's pincode for distance calculations", value="411001")
-
+        file_options = [("PBOM", "pbom"), ("MBOM", "mbom"), ("Part Attribute", "part_attribute"), ("Vendor Master", "vendor_master"), ("Packaging Details", "packaging")]
+        for display_name, key_name in file_options:
+            uploaded_files[key_name] = st.file_uploader(f"Upload {display_name} File(s)", type=['csv', 'xlsx'], accept_multiple_files=True, key=f"upload_{key_name}")
+        pincode = st.text_input("Enter your location's pincode", value="411001")
         if st.button("Process Uploaded Files"):
             if not (uploaded_files['pbom'] or uploaded_files['mbom']):
                 st.error("You must upload at least one PBOM or MBOM file.")
@@ -852,27 +557,21 @@ def main():
                         supp_dfs = [st.session_state.all_files[k] for k in ['part_attribute', 'vendor_master', 'packaging']]
                         st.session_state.master_df, st.session_state.qty_cols, st.session_state.vehicle_configs = finalize_master_df(base_bom, supp_dfs)
                         st.session_state.app_stage = "configure"
-                    else:
-                        st.error("Failed to consolidate BOM data. Please check your files.")
                 st.rerun()
 
     elif st.session_state.app_stage == "bom_selection":
         st.header("Step 1.5: BOM Base Selection")
-        st.info("You uploaded both PBOM and MBOM files. Choose the base for the PFEP analysis.")
-        with st.spinner("Analyzing differences..."):
-            all_files = st.session_state.all_files
-            master_pbom = _consolidate_bom_list(all_files['pbom'])
-            master_mbom = _consolidate_bom_list(all_files['mbom'])
-            pbom_parts = set(master_pbom['part_id']) if master_pbom is not None else set()
-            mbom_parts = set(master_mbom['part_id']) if master_mbom is not None else set()
-        st.subheader("BOM Comparison")
+        all_files = st.session_state.all_files
+        master_pbom = _consolidate_bom_list(all_files['pbom'])
+        master_mbom = _consolidate_bom_list(all_files['mbom'])
+        pbom_parts = set(master_pbom['part_id']) if master_pbom is not None else set()
+        mbom_parts = set(master_mbom['part_id']) if master_mbom is not None else set()
         col1, col2, col3 = st.columns(3)
         col1.metric("Parts Unique to PBOM", len(pbom_parts - mbom_parts))
         col2.metric("Parts Unique to MBOM", len(mbom_parts - pbom_parts))
         col3.metric("Parts Common to Both", len(pbom_parts.intersection(mbom_parts)))
-        
         bom_choice = st.radio("Select the BOM base:", ('Use PBOM as base', 'Use MBOM as base', 'Combine both PBOM and MBOM'), horizontal=True)
-        if st.button("Confirm Selection and Continue"):
+        if st.button("Confirm Selection"):
             base_bom_df = { 'Use PBOM as base': master_pbom, 'Use MBOM as base': master_mbom, 'Combine both PBOM and MBOM': _consolidate_bom_list([master_pbom, master_mbom]) }[bom_choice]
             if base_bom_df is not None:
                 supp_dfs = [all_files[k] for k in ['part_attribute', 'vendor_master', 'packaging']]
@@ -881,36 +580,21 @@ def main():
                 st.rerun()
 
     elif st.session_state.app_stage == "configure":
-        header_text = "Step 2: Configure Daily Production"
-        button_text = "🚀 Run Full Analysis"
-        st.header(header_text)
-        
+        st.header("Step 2: Configure Daily Production")
         if not st.session_state.qty_cols:
-            st.warning("No 'Quantity per Vehicle' columns detected. Consumption will be zero.")
-            st.session_state.qty_cols = []
-        else:
-            st.info("Provide a name and daily production for each detected vehicle type.")
-        
-        if st.session_state.vehicle_configs is None:
-            st.session_state.vehicle_configs = [{"name": f"Vehicle Type {i+1}", "multiplier": 1.0} for i, _ in enumerate(st.session_state.qty_cols)]
-
+            st.warning("No 'Quantity per Vehicle' columns detected.")
         vehicle_configs_input = []
         for i, _ in enumerate(st.session_state.qty_cols):
-            default_config = st.session_state.vehicle_configs[i] if i < len(st.session_state.vehicle_configs) else {"name": f"Vehicle Type {i+1}", "multiplier": 1.0}
-            st.markdown(f"**Detected Column/Vehicle Type #{i+1}**")
+            default_config = st.session_state.vehicle_configs[i] if i < len(st.session_state.vehicle_configs) else {"name": f"Vehicle {i+1}", "multiplier": 1.0}
             cols = st.columns([2, 1])
             name = cols[0].text_input("Vehicle Name", default_config['name'], key=f"name_{i}")
             multiplier = cols[1].number_input("Daily Production", min_value=0.0, value=default_config.get('multiplier', 1.0), step=0.1, key=f"mult_{i}")
             vehicle_configs_input.append({"name": name, "multiplier": multiplier})
-        
-        if st.button(button_text):
+        if st.button("🚀 Run Full Analysis"):
             st.session_state.vehicle_configs = vehicle_configs_input
             processor = ComprehensiveInventoryProcessor(st.session_state.master_df)
-            
             st.session_state.master_df = processor.calculate_dynamic_consumption(st.session_state.qty_cols, [c.get('multiplier', 0) for c in vehicle_configs_input])
             st.session_state.processor = processor
-
-            # UNIFIED WORKFLOW: Both 'create' and 'modify' now start the full processing pipeline here.
             st.session_state.app_stage = "process_family" 
             st.rerun()
 
@@ -923,22 +607,18 @@ def main():
             {"process_stage": "process_norms", "review_stage": "review_norms", "method": "run_location_based_norms", "key": "inventory_classification", "name": "Inventory Norms"},
             {"process_stage": "process_wh", "review_stage": "review_wh", "method": "run_warehouse_location_assignment", "key": "wh_loc", "name": "Warehouse Location"},
         ]
-        
         current_step_index = -1
         for i, step in enumerate(processing_steps):
             if st.session_state.app_stage in [step['process_stage'], step['review_stage']]:
                 current_step_index = i
                 break
-        
         if current_step_index != -1:
             step = processing_steps[current_step_index]
             next_stage = processing_steps[current_step_index + 1]['process_stage'] if current_step_index + 1 < len(processing_steps) else "generate_report"
-            
             if st.session_state.app_stage == step['process_stage']:
                 st.header(f"Step 3: Automated Processing")
                 with st.spinner(f"Running {step['name']}..."):
                     processor = st.session_state.processor
-                    # The pincode is now passed correctly from the session state
                     if step['method'] == 'run_location_based_norms':
                         getattr(processor, step['method'])(st.session_state.pincode)
                     else:
@@ -946,7 +626,6 @@ def main():
                     st.session_state.master_df = processor.data
                     st.session_state.app_stage = step['review_stage']
                     st.rerun()
-
             elif st.session_state.app_stage == step['review_stage']:
                 render_review_step(step['name'], step['key'], next_stage)
 
