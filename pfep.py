@@ -172,25 +172,26 @@ def find_and_rename_columns(df):
     return df
 
 def _consolidate_bom_list(bom_list):
+    """
+    Combines a list of BOM DataFrames into a single DataFrame with unique parts.
+    If a part_id is duplicated, it keeps only the first occurrence.
+    """
     valid_boms = [df for df in bom_list if df is not None and 'part_id' in df.columns]
-    if not valid_boms: return None
-    
+    if not valid_boms:
+        return None
+
+    # 1. Combine all uploaded BOM files into a single DataFrame.
     master = pd.concat(valid_boms, ignore_index=True)
     
-    qty_cols = [col for col in master.columns if 'qty_veh_temp' in col]
-    other_cols = [col for col in master.columns if col not in qty_cols and col != 'part_id']
-    
-    agg_dict = {col: 'sum' for col in qty_cols}
-    agg_dict.update({col: 'first' for col in other_cols})
-        
-    master[qty_cols] = master[qty_cols].fillna(0)
+    # 2. Ensure part_id is a consistent string type for accurate duplicate detection.
     master['part_id'] = master['part_id'].astype(str)
-    master = master.groupby('part_id').agg(agg_dict).reset_index()
     
-    for col in qty_cols:
-        master[col] = master[col].replace(0, np.nan)
-        
+    # 3. The crucial step: Remove duplicate part numbers, keeping only the first one encountered.
+    # This prevents the unwanted summation of quantities from within a single file.
+    master.drop_duplicates(subset=['part_id'], keep='first', inplace=True)
+    
     return master
+
 
 def _merge_supplementary_df(main_df, new_df):
     if 'part_id' not in new_df.columns: return main_df
@@ -465,7 +466,7 @@ class ComprehensiveInventoryProcessor:
         missing_cols = [col for col in required_cols if col not in self.data.columns]
         if missing_cols:
             st.error(f"Cannot calculate inventory norms. The data is missing the following required columns: {', '.join(missing_cols)}")
-            for col in ['distance_km', 'DISTANCE CODE', 'inventory_classification', 'RM IN DAYS', 'RM IN QTY', 'RM IN INR', 'NO OF SEC. REQD.', 'NO OF SEC REQ. AS PER PF']:
+            for col in ['distance_km', 'DISTANCE CODE', 'inventory_classification', 'RM IN DAYS', 'RM IN QTY', 'RM IN INR', 'NO OF SEC. PACK REQD.', 'NO OF SEC REQ. AS PER PF']:
                 self.data[col] = np.nan
             return
 
