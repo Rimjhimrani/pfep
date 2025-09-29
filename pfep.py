@@ -34,7 +34,7 @@ INTERNAL_TO_PFEP_NEW_COLS = { 'family': 'FAMILY', 'part_classification': 'PART C
 FAMILY_KEYWORD_MAPPING = { "ADAPTOR": ["ADAPTOR", "ADAPTER"], "Beading": ["BEADING"], "Electrical": ["BATTERY", "HVPDU", "ELECTRICAL", "INVERTER", "SENSOR", "DC", "COMPRESSOR", "TMCS", "COOLING", "BRAKE SIGNAL", "VCU", "VEHICLE CONTROL", "EVCC", "EBS ECU", "ECU", "CONTROL UNIT", "SIGNAL", "TRANSMITTER", "TRACTION", "HV", "KWH", "EBS", "SWITCH", "HORN"], "Electronics": ["DISPLAY", "APC", "SCREEN", "MICROPHONE", "CAMERA", "SPEAKER", "DASHBOARD", "ELECTRONICS", "SSD", "WOODWARD", "FDAS", "BDC", "GEN-2", "SENSOR", "BUZZER"], "Wheels": ["WHEEL", "TYRE", "TIRE", "RIM"], "Harness": ["HARNESS", "CABLE"], "Mechanical": ["PUMP", "SHAFT", "LINK", "GEAR", "ARM"], "Hardware": ["NUT", "BOLT", "SCREW", "WASHER", "RIVET", "M5", "M22", "M12", "CLAMP", "CLIP", "CABLE TIE", "DIN", "ZFP"], "Bracket": ["BRACKET", "BRKT", "BKT", "BRCKT"], "ASSY": ["ASSY"], "Sticker": ["STICKER", "LOGO", "EMBLEM"], "Suspension": ["SUSPENSION"], "Tank": ["TANK"], "Tape": ["TAPE", "REFLECTOR", "COLOUR"], "Tool Kit": ["TOOL KIT"], "Valve": ["VALVE"], "Hose": ["HOSE"], "Insulation": ["INSULATION"], "Interior & Exterior": ["ROLLER", "FIRE", "HAMMER"], "L-angle": ["L-ANGLE"], "Lamp": ["LAMP"], "Lock": ["LOCK"], "Lubricants": ["GREASE", "LUBRICANT"], "Medical": ["MEDICAL", "FIRST AID"], "Mirror": ["MIRROR", "ORVM"], "Motor": ["MOTOR"], "Mounting": ["MOUNT", "MTG", "MNTG", "MOUNTED"], "Oil": ["OIL"], "Panel": ["PANEL"], "Pillar": ["PILLAR"], "Pipe": ["PIPE", "TUBE", "SUCTION", "TUBULAR"], "Plate": ["PLATE"], "Plywood": ["FLOORING", "PLYWOOD", "EPGC"], "Profile": ["PROFILE", "ALUMINIUM"], "Rail": ["RAIL"], "Rubber": ["RUBBER", "GROMMET", "MOULDING"], "Seal": ["SEAL"], "Seat": ["SEAT"], "ABS Cover": ["ABS COVER"], "AC": ["AC"], "ACP Sheet": ["ACP SHEET"], "Aluminium": ["ALUMINIUM", "ALUMINUM"], "AXLE": ["AXLE"], "Bush": ["BUSH"], "Chassis": ["CHASSIS"], "Dome": ["DOME"], "Door": ["DOOR"], "Filter": ["FILTER"], "Flap": ["FLAP"], "FRP": ["FRP", "FACIA"], "Glass": ["GLASS", "WINDSHIELD", "WINDSHILED"], "Handle": ["HANDLE", "HAND", "PLASTIC"], "HATCH": ["HATCH"], "HDF Board": ["HDF"] }
 CATEGORY_PRIORITY_FAMILIES = {"ACP Sheet", "ADAPTOR", "Bracket", "Bush", "Flap", "Handle", "Beading", "Lubricants", "Panel", "Pillar", "Rail", "Seal", "Sticker", "Valve"}
 BASE_WAREHOUSE_MAPPING = { "ABS Cover": "HRR", "ADAPTOR": "MEZ B-01(A)", "Beading": "HRR", "AXLE": "FLOOR", "Bush": "HRR", "Chassis": "FLOOR", "Dome": "MEZ C-02(B)", "Door": "MRR(C-01)", "Electrical": "HRR", "Filter": "CRL", "Flap": "MEZ C-02", "Insulation": "MEZ C-02(B)", "Interior & Exterior": "HRR", "L-angle": "MEZ B-01(A)", "Lamp": "CRL", "Lock": "CRL", "Lubricants": "HRR", "Medical": "HRR", "Mirror": "HRR", "Motor": "HRR", "Mounting": "HRR", "Oil": "HRR", "Panel": "MEZ C-02", "Pillar": "MEZ C-02", "Pipe": "HRR", "Plate": "HRR", "Profile": "HRR", "Rail": "CTR(C-01)", "Seal": "HRR", "Seat": "MRR(C-01)", "Sticker": "MEZ B-01(A)", "Suspension": "MRR(C-01)", "Tank": "HRR", "Tool Kit": "HRR", "Valve": "CRL", "Wheels": "HRR", "Hardware": "MEZ B-02(A)", "Glass": "MRR(C-01)", "Harness": "HRR", "Hose": "HRR", "Aluminium": "HRR", "ACP Sheet": "MEZ C-02(B)", "Handle": "HRR", "HATCH": "HRR", "HDF Board": "MRR(C-01)", "FRP": "CTR", "Others": "HRR" }
-GEOLOCATOR = Nominatim(user_agent="inventory_distance_calculator_streamlit_v10", timeout=10)
+GEOLOCATOR = Nominatim(user_agent="inventory_distance_calculator_streamlit_v11", timeout=10)
 
 # --- 2. CORE DATA PROCESSING FUNCTIONS ---
 @st.cache_data
@@ -43,21 +43,19 @@ def get_lat_lon(pincode, country="India", city="", state="", retries=3, backoff_
     More robustly geocodes a pincode by trying multiple query formats.
     """
     pincode_str = str(pincode).strip().split('.')[0]
-    # Basic validation for Indian pincodes to avoid unnecessary API calls
     if not (pincode_str.isdigit() and len(pincode_str) == 6):
         return (None, None)
 
-    # Define a list of query methods to attempt in order of preference.
     queries_to_try = [
         {'postalcode': pincode_str, 'city': city, 'state': state, 'country': country},
         {'postalcode': pincode_str, 'state': state, 'country': country},
         {'postalcode': pincode_str, 'country': country},
-        f"{pincode_str}, {city}, {state}, {country}",  # Fallback to original string query
+        f"{pincode_str}, {city}, {state}, {country}",
         f"{pincode_str}, {country}"
     ]
 
     for attempt in range(retries):
-        time.sleep(1) # Respect the 1 request/sec rate limit for Nominatim
+        time.sleep(1) 
         for query in queries_to_try:
             try:
                 location = GEOLOCATOR.geocode(query, exactly_one=True, timeout=10)
@@ -71,7 +69,8 @@ def get_lat_lon(pincode, country="India", city="", state="", retries=3, backoff_
             wait_time = backoff_factor * (attempt + 1)
             time.sleep(wait_time)
 
-    st.warning(f"Geocoding failed for pincode '{pincode_str}' (City: {city}, State: {state}). Distances for this vendor will be blank. Please verify the address details.")
+    # Do not show a warning for every single failure, as it clutters the UI. 
+    # The main function will handle reporting.
     return (None, None)
 
 
@@ -93,28 +92,41 @@ def read_uploaded_file(uploaded_file):
         return None
 
 def read_pfep_file(uploaded_file):
-    """Reads an Excel file assuming headers are on the second row."""
     try:
         return pd.read_excel(uploaded_file, header=1)
     except Exception as e:
         st.error(f"Error reading PFEP file {uploaded_file.name}: {e}")
         return None
 
-def validate_and_parse_pfep(df):
+def validate_and_parse_pfep(df, is_modify_workflow=False):
     """
-    Validates the structure of an uploaded PFEP file and transforms it into the internal format.
+    Validates the structure of a PFEP file. For the 'modify' workflow,
+    it performs stricter checks for columns required for recalculations.
     """
-    uploaded_cols = set(df.columns)
-
-    if not {'PARTNO', 'PART DESCRIPTION', 'FAMILY', 'NET'}.issubset(uploaded_cols):
-        st.error("Validation Failed: The uploaded file is missing one or more core columns: 'PARTNO', 'PART DESCRIPTION', 'FAMILY', 'NET'.")
+    uploaded_cols = {str(col).lower().strip() for col in df.columns}
+    
+    # Basic structural checks for all workflows
+    core_cols = {'partno', 'part description', 'family', 'net', 'total'}
+    if not core_cols.issubset(uploaded_cols):
+        missing = core_cols - uploaded_cols
+        st.error(f"Validation Failed: The uploaded file is missing one or more structural columns: {', '.join(missing).upper()}.")
         return None, None, None
 
+    # Stricter checks for the modify workflow
+    if is_modify_workflow:
+        required_for_recalc = {'unit price', 'pincode'}
+        if not required_for_recalc.issubset(uploaded_cols):
+            missing = required_for_recalc - uploaded_cols
+            st.error(f"Validation Failed for 'Modify' Workflow: To recalculate inventory norms, the uploaded PFEP must contain the following columns: {', '.join(missing).upper()}. Please add them and re-upload.")
+            return None, None, None
+
+    # Identify vehicle-specific columns based on their position in the template
     try:
-        part_desc_idx = df.columns.get_loc('PART DESCRIPTION')
-        total_idx = df.columns.get_loc('TOTAL')
+        # Use a case-insensitive search for column indices
+        part_desc_idx = [i for i, col in enumerate(df.columns) if str(col).lower().strip() == 'part description'][0]
+        total_idx = [i for i, col in enumerate(df.columns) if str(col).lower().strip() == 'total'][0]
         vehicle_qty_pfep_cols = df.columns[part_desc_idx + 1 : total_idx].tolist()
-    except KeyError:
+    except IndexError:
         st.error("Validation Failed: Could not find 'PART DESCRIPTION' or 'TOTAL' columns to identify vehicle types.")
         return None, None, None
 
@@ -134,6 +146,7 @@ def validate_and_parse_pfep(df):
 
     st.success(f"✅ PFEP file validated successfully. Found {len(vehicle_configs)} vehicle types.")
     return df, sorted(internal_qty_cols), vehicle_configs
+
 
 def find_and_rename_columns(df):
     rename_dict, found_keys = {}, []
@@ -276,7 +289,7 @@ def finalize_master_df(base_bom_df, supplementary_dfs):
 # --- 3. CLASSIFICATION AND PROCESSING CLASSES ---
 class PartClassificationSystem:
     def __init__(self):
-        self.percentages = {'C': {'target': 60, 'tolerance': 5}, 'B': {'target': 25, 'tolerance': 2}, 'A': {'target': 12, 'tolerance': 2}, 'AA': {'target': 3, 'tolerance': 1}}
+        self.percentages = {'C': {'target': 60}, 'B': {'target': 25}, 'A': {'target': 12}, 'AA': {'target': 3}}
         self.calculated_ranges = {}
 
     def calculate_percentage_ranges(self, df, price_column):
@@ -292,9 +305,9 @@ class PartClassificationSystem:
         processing_order = ['AA', 'A', 'B', 'C']
         
         for class_name in processing_order:
+            if current_idx >= total_valid_parts: break
             if class_name == 'C':
-                if current_idx < total_valid_parts:
-                    ranges[class_name] = {'min': 0, 'max': valid_prices.iloc[current_idx]}
+                ranges[class_name] = {'min': 0, 'max': valid_prices.iloc[current_idx]}
                 continue
 
             details = self.percentages[class_name]
@@ -312,7 +325,7 @@ class PartClassificationSystem:
         st.write("   Ranges calculated successfully.")
 
     def classify_part(self, unit_price):
-        if pd.isna(unit_price) or not isinstance(unit_price, (int, float)): return np.nan
+        if pd.isna(unit_price): return np.nan
         if not self.calculated_ranges: return 'Unclassified'
         
         if unit_price >= self.calculated_ranges.get('AA', {'min': float('inf')})['min']: return 'AA'
@@ -420,7 +433,7 @@ class ComprehensiveInventoryProcessor:
                 pack_type_lower = str(pack_type).lower()
                 if any(keyword in pack_type_lower for keyword in returnable_keywords): return 'Returnable'
                 if any(keyword in pack_type_lower for keyword in one_way_keywords): return 'One Way'
-                return np.nan # Return empty if no match
+                return np.nan
             self.data['one_way_returnable'] = self.data['primary_pack_type'].apply(classify_pack)
             st.success("✅ Automated packaging type classification complete.")
 
@@ -435,28 +448,68 @@ class ComprehensiveInventoryProcessor:
 
     def run_location_based_norms(self, pincode):
         st.subheader(f"(E) Distance & Inventory Norms")
-        with st.spinner(f"Getting coordinates for location pincode: {pincode}..."):
+        
+        # --- DEFENSIVE CHECK ---
+        required_cols = ['pincode', 'part_classification', 'net_daily_consumption', 'unit_price']
+        missing_cols = [col for col in required_cols if col not in self.data.columns]
+        if missing_cols:
+            st.error(f"Cannot calculate inventory norms. The data is missing the following required columns: {', '.join(missing_cols)}")
+            # Fill output columns with NaN to avoid downstream errors
+            for col in ['distance_km', 'DISTANCE CODE', 'inventory_classification', 'RM IN DAYS', 'RM IN QTY', 'RM IN INR', 'NO OF SEC. REQD.', 'NO OF SEC REQ. AS PER PF']:
+                self.data[col] = np.nan
+            return
+
+        with st.spinner(f"Getting coordinates for your location pincode: {pincode}..."):
             current_coords = get_lat_lon(pincode, country="India")
         if current_coords == (None, None):
-            st.error(f"CRITICAL: Could not find coordinates for {pincode}. Distances cannot be calculated.")
+            st.error(f"CRITICAL: Could not find coordinates for your pincode {pincode}. Distances cannot be calculated.")
             return
-        with st.spinner("Calculating distances to vendors..."):
-            def calculate_distance(row):
-                vendor_coords = get_lat_lon(row.get('pincode'), city=str(row.get('city', '')), state=str(row.get('state', '')))
-                return geodesic(current_coords, vendor_coords).km if vendor_coords[0] is not None else np.nan
-            self.data['distance_km'] = self.data.apply(calculate_distance, axis=1)
+
+        # Prepare a unique list of vendor locations to geocode
+        vendor_locations = self.data[['pincode', 'city', 'state']].drop_duplicates().dropna(subset=['pincode'])
+        location_cache = {}
+        
+        status_placeholder = st.sidebar.empty()
+        st.sidebar.info("Geocoding vendor locations...")
+        
+        failed_geocodes = 0
+        total_locations = len(vendor_locations)
+        for i, row in enumerate(vendor_locations.itertuples()):
+            status_placeholder.info(f"Geocoding vendor {i+1} of {total_locations}...")
+            # Use tuple of location data as cache key
+            cache_key = (row.pincode, row.city, row.state)
+            if cache_key not in location_cache:
+                coords = get_lat_lon(row.pincode, city=str(row.city), state=str(row.state))
+                location_cache[cache_key] = geodesic(current_coords, coords).km if coords[0] is not None else np.nan
+                if pd.isna(location_cache[cache_key]):
+                    failed_geocodes += 1
+
+        status_placeholder.empty()
+        if failed_geocodes > 0:
+            st.sidebar.warning(f"Geocoding failed for {failed_geocodes} out of {total_locations} vendor locations. Those parts will have blank distance norms.")
+        else:
+            st.sidebar.success(f"Successfully geocoded all {total_locations} vendor locations.")
+
+        # Map the calculated distances back to the main dataframe
+        def map_distance(row):
+            cache_key = (row.get('pincode'), row.get('city'), row.get('state'))
+            return location_cache.get(cache_key, np.nan)
+            
+        self.data['distance_km'] = self.data.apply(map_distance, axis=1)
+        
         self.data['DISTANCE CODE'] = self.data['distance_km'].apply(get_distance_code)
         def get_inv_class(p, d):
             if pd.isna(p) or pd.isna(d): return None
             d = int(d)
             if p in ['AA', 'A']: return f"A{d}"
             if p == 'B': return f"B{d}"
-            if p == 'C': return 'C1' if d in [1] else 'C2'
+            if p == 'C': return 'C1' if d in [1, 2] else 'C2'
             return None
         self.data['inventory_classification'] = self.data.apply(lambda r: get_inv_class(r.get('part_classification'), r.get('DISTANCE CODE')), axis=1)
         self.data['RM IN DAYS'] = self.data['inventory_classification'].map(self.rm_days_mapping)
-        self.data['RM IN QTY'] = self.data['RM IN DAYS'] * self.data.get('net_daily_consumption', 0)
-        self.data['RM IN INR'] = self.data['RM IN QTY'] * pd.to_numeric(self.data.get('unit_price'), errors='coerce')
+        self.data['RM IN QTY'] = self.data['RM IN DAYS'] * self.data['net_daily_consumption']
+        self.data['RM IN INR'] = self.data['RM IN QTY'] * pd.to_numeric(self.data['unit_price'], errors='coerce')
+        
         qty_per_pack = pd.to_numeric(self.data.get('qty_per_pack'), errors='coerce').fillna(1).replace(0, 1)
         packing_factor = pd.to_numeric(self.data.get('packing_factor'), errors='coerce').fillna(1)
         self.data['NO OF SEC. REQD.'] = np.ceil(self.data['RM IN QTY'] / qty_per_pack)
@@ -494,7 +547,6 @@ class ComprehensiveInventoryProcessor:
 def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
     st.subheader("(G) Generating Formatted Excel Report")
     
-    # --- 1. Prepare data and template columns ---
     final_df = df.copy()
     rename_map = {**PFEP_COLUMN_MAP, **INTERNAL_TO_PFEP_NEW_COLS, 'TOTAL': 'TOTAL'}
     
@@ -523,7 +575,6 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
     final_df = final_df[final_template]
     final_df['SR.NO'] = range(1, len(final_df) + 1)
 
-    # --- 2. Prepare dynamic data for the header ---
     part_class_counts = df['part_classification'].value_counts().reindex(['AA', 'A', 'B', 'C']).fillna(0)
     total_classified = part_class_counts.sum()
     part_class_percentages = (part_class_counts / total_classified) if total_classified > 0 else part_class_counts
@@ -535,7 +586,6 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
     with st.spinner("Creating the final Excel workbook with all source files..."):
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            # --- 3. Setup Workbook and Formats ---
             workbook = writer.book
             worksheet = workbook.add_worksheet('Master Data Sheet')
             
@@ -547,19 +597,14 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
             header_value_format = workbook.add_format({'align': 'center', 'border': 1})
             percentage_format = workbook.add_format({'align': 'center', 'border': 1, 'num_format': '0.0%'})
             
-            # --- 4. Write the Header Section on the Main Sheet ---
             worksheet.merge_range('J5:K5', 'Daily consumption', header_title_format)
             veh_names = list(daily_consumption_values.keys())
             if len(veh_names) >= 2:
-                worksheet.write('J6', veh_names[0], header_label_format)
-                worksheet.write('K6', veh_names[1], header_label_format)
-                worksheet.write('J7', daily_consumption_values.get(veh_names[0], 0), header_value_format)
-                worksheet.write('K7', daily_consumption_values.get(veh_names[1], 0), header_value_format)
+                worksheet.write('J6', veh_names[0], header_label_format); worksheet.write('K6', veh_names[1], header_label_format)
+                worksheet.write('J7', daily_consumption_values.get(veh_names[0], 0), header_value_format); worksheet.write('K7', daily_consumption_values.get(veh_names[1], 0), header_value_format)
             elif len(veh_names) == 1:
-                 worksheet.write('J6', veh_names[0], header_label_format)
-                 worksheet.write('K6', "", header_label_format)
-                 worksheet.write('J7', daily_consumption_values.get(veh_names[0], 0), header_value_format)
-                 worksheet.write('K7', "", header_value_format)
+                 worksheet.write('J6', veh_names[0], header_label_format); worksheet.write('K6', "", header_label_format)
+                 worksheet.write('J7', daily_consumption_values.get(veh_names[0], 0), header_value_format); worksheet.write('K7', "", header_value_format)
 
             worksheet.merge_range('M4:Q4', 'Part Classification Assumption', header_title_format)
             worksheet.write('M5', 'Class', header_label_format); worksheet.write('N5', 'Calculated Range (INR)', header_label_format)
@@ -578,22 +623,18 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
             row_map = {'AA': 6, 'A': 7, 'B': 8, 'C': 9}
             for code, row_num in row_map.items():
                 row_idx = row_num - 1
-                worksheet.write(row_idx, 12, code, header_label_format)
-                worksheet.write(row_idx, 13, format_range(code), header_value_format)
+                worksheet.write(row_idx, 12, code, header_label_format); worksheet.write(row_idx, 13, format_range(code), header_value_format)
                 worksheet.write(row_idx, 14, st.session_state.processor.classifier.percentages[code]['target'] / 100, percentage_format)
-                worksheet.write(row_idx, 15, part_class_counts.get(code, 0), header_value_format)
-                worksheet.write(row_idx, 16, part_class_percentages.get(code, 0), percentage_format)
+                worksheet.write(row_idx, 15, part_class_counts.get(code, 0), header_value_format); worksheet.write(row_idx, 16, part_class_percentages.get(code, 0), percentage_format)
             
-            worksheet.write('P10', total_classified, header_value_format)
-            worksheet.write('Q10', 1 if total_classified > 0 else 0, percentage_format)
+            worksheet.write('P10', total_classified, header_value_format); worksheet.write('Q10', 1 if total_classified > 0 else 0, percentage_format)
 
             worksheet.merge_range('S4:T4', 'Size Classification Count', header_title_format)
             worksheet.write('S5', 'Size', header_label_format); worksheet.write('T5', 'Count', header_label_format)
             size_row_map = {'XL': 6, 'L': 7, 'M': 8, 'S': 9}
             for size, row_num in size_row_map.items():
                 row_idx = row_num - 1
-                worksheet.write(row_idx, 18, size, header_label_format)
-                worksheet.write(row_idx, 19, int(size_counts.get(size, 0)), header_value_format)
+                worksheet.write(row_idx, 18, size, header_label_format); worksheet.write(row_idx, 19, int(size_counts.get(size, 0)), header_value_format)
             worksheet.write('T10', int(size_counts.sum()), header_value_format)
 
             worksheet.merge_range('V4:W4', 'Packaging Type Count', header_title_format)
@@ -601,49 +642,37 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
             pack_row_map = {'One Way': 6, 'Returnable': 7}
             for pack_type, row_num in pack_row_map.items():
                 row_idx = row_num - 1
-                worksheet.write(row_idx, 21, pack_type, header_label_format)
-                worksheet.write(row_idx, 22, int(packaging_counts.get(pack_type, 0)), header_value_format)
+                worksheet.write(row_idx, 21, pack_type, header_label_format); worksheet.write(row_idx, 22, int(packaging_counts.get(pack_type, 0)), header_value_format)
 
             worksheet.merge_range('Y4:Z4', 'Warehouse Location Count', header_title_format)
             worksheet.write('Y5', 'Location', header_label_format); worksheet.write('Z5', 'Count', header_label_format)
             current_row = 6
             for location, count in wh_loc_counts.items():
                 if current_row > 11:
-                    worksheet.write(current_row - 1, 24, '...and more', header_value_format)
-                    break
+                    worksheet.write(current_row - 1, 24, '...and more', header_value_format); break
                 row_idx = current_row - 1
-                worksheet.write(row_idx, 24, location, header_value_format)
-                worksheet.write(row_idx, 25, count, header_value_format)
+                worksheet.write(row_idx, 24, location, header_value_format); worksheet.write(row_idx, 25, count, header_value_format)
                 current_row += 1
 
-            # --- 5. Write the Main PFEP Data Table ---
             final_df.to_excel(writer, sheet_name='Master Data Sheet', startrow=12, header=False, index=False)
             
             final_columns_list = final_df.columns.tolist()
             first_daily_col = qty_veh_daily_cols[0] if qty_veh_daily_cols else 'NET'
             
             headers_info = [
-                {'title': 'PART DETAILS', 'start': 'SR.NO', 'end': 'FAMILY', 'style': h_gray},
-                {'title': 'Daily consumption', 'start': first_daily_col, 'end': 'NET', 'style': s_orange},
-                {'title': 'PRICE & CLASSIFICATION', 'start': 'UNIT PRICE', 'end': 'PART CLASSIFICATION', 'style': s_orange},
-                {'title': 'Size & Classification', 'start': 'L-MM_Size', 'end': 'SIZE CLASSIFICATION', 'style': s_orange},
-                {'title': 'VENDOR DETAILS', 'start': 'VENDOR CODE', 'end': 'PINCODE', 'style': s_blue},
-                {'title': 'PACKAGING DETAILS', 'start': 'PRIMARY PACK TYPE', 'end': 'ONE WAY/ RETURNABLE', 'style': s_orange},
-                {'title': 'INVENTORY NORM', 'start': 'DISTANCE CODE', 'end': 'NO OF SEC REQ. AS PER PF', 'style': s_blue},
-                {'title': 'WH STORAGE', 'start': 'WH LOC', 'end': 'STACKING FACTOR', 'style': s_orange},
-                {'title': 'SUPPLY SYSTEM', 'start': 'SUPPLY TYPE', 'end': 'SUPPLY CONDITION', 'style': s_blue},
-                {'title': 'LINE SIDE STORAGE', 'start': 'CONTAINER LINE SIDE', 'end': 'INVENTORY LINE SIDE', 'style': h_gray}
+                {'title': 'PART DETAILS', 'start': 'SR.NO', 'end': 'FAMILY', 'style': h_gray}, {'title': 'Daily consumption', 'start': first_daily_col, 'end': 'NET', 'style': s_orange},
+                {'title': 'PRICE & CLASSIFICATION', 'start': 'UNIT PRICE', 'end': 'PART CLASSIFICATION', 'style': s_orange}, {'title': 'Size & Classification', 'start': 'L-MM_Size', 'end': 'SIZE CLASSIFICATION', 'style': s_orange},
+                {'title': 'VENDOR DETAILS', 'start': 'VENDOR CODE', 'end': 'PINCODE', 'style': s_blue}, {'title': 'PACKAGING DETAILS', 'start': 'PRIMARY PACK TYPE', 'end': 'ONE WAY/ RETURNABLE', 'style': s_orange},
+                {'title': 'INVENTORY NORM', 'start': 'DISTANCE CODE', 'end': 'NO OF SEC REQ. AS PER PF', 'style': s_blue}, {'title': 'WH STORAGE', 'start': 'WH LOC', 'end': 'STACKING FACTOR', 'style': s_orange},
+                {'title': 'SUPPLY SYSTEM', 'start': 'SUPPLY TYPE', 'end': 'SUPPLY CONDITION', 'style': s_blue}, {'title': 'LINE SIDE STORAGE', 'start': 'CONTAINER LINE SIDE', 'end': 'INVENTORY LINE SIDE', 'style': h_gray}
             ]
 
             for header in headers_info:
                 try:
-                    start_idx = final_columns_list.index(header['start'])
-                    end_idx = final_columns_list.index(header['end'])
+                    start_idx = final_columns_list.index(header['start']); end_idx = final_columns_list.index(header['end'])
                     if start_idx <= end_idx:
-                        if start_idx == end_idx:
-                            worksheet.write(11, start_idx, header['title'], header['style'])
-                        else:
-                            worksheet.merge_range(11, start_idx, 11, end_idx, header['title'], header['style'])
+                        if start_idx == end_idx: worksheet.write(11, start_idx, header['title'], header['style'])
+                        else: worksheet.merge_range(11, start_idx, 11, end_idx, header['title'], header['style'])
                 except ValueError:
                     st.warning(f"A column for header '{header['title']}' was not found. Skipping header.")
 
@@ -651,7 +680,6 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
                 worksheet.write(12, col_num, value, h_gray)
             worksheet.set_column('A:A', 6); worksheet.set_column('B:C', 22); worksheet.set_column('D:ZZ', 18)
 
-            # --- 6. Add Source File Sheets ---
             if source_files_dict:
                 for file_category, df_list in source_files_dict.items():
                     if not df_list: continue
@@ -720,8 +748,6 @@ def main():
         if key not in st.session_state:
             st.session_state[key] = None if key != 'app_stage' else 'welcome'
     
-    # --- State Machine using if/elif for robustness ---
-    
     if st.session_state.app_stage == "welcome":
         st.header("What would you like to do?")
         col1, col2 = st.columns(2)
@@ -755,7 +781,8 @@ def main():
                     st.warning(f"Could not store the original PFEP for the final report due to a reading error: {e}")
 
                 if pfep_df_for_process is not None:
-                    parsed_df, qty_cols, vehicle_configs = validate_and_parse_pfep(pfep_df_for_process)
+                    # Pass the flag to enable stricter validation for the modify workflow
+                    parsed_df, qty_cols, vehicle_configs = validate_and_parse_pfep(pfep_df_for_process, is_modify_workflow=True)
                     if parsed_df is not None:
                         st.session_state.master_df = parsed_df
                         st.session_state.qty_cols = qty_cols
@@ -821,22 +848,21 @@ def main():
                 st.rerun()
 
     elif st.session_state.app_stage == "configure":
-        header_text = "Step 2: Modify Daily Production Plan" if st.session_state.workflow_mode == 'modify' else "Step 2: Configure Daily Consumption"
-        info_text = "Modify the daily production for each vehicle type to recalculate the PFEP." if st.session_state.workflow_mode == 'modify' else "Provide a name and daily production for each detected vehicle type."
-        button_text = "🚀 Recalculate PFEP" if st.session_state.workflow_mode == 'modify' else "🚀 Run Full Analysis"
-        
+        header_text = "Step 2: Configure Daily Production"
+        button_text = "🚀 Run Full Analysis"
         st.header(header_text)
+        
         if not st.session_state.qty_cols:
             st.warning("No 'Quantity per Vehicle' columns detected. Consumption will be zero.")
             st.session_state.qty_cols = []
         else:
-            st.info(info_text)
+            st.info("Provide a name and daily production for each detected vehicle type.")
         
         if st.session_state.vehicle_configs is None:
             st.session_state.vehicle_configs = [{"name": f"Vehicle Type {i+1}", "multiplier": 1.0} for i, _ in enumerate(st.session_state.qty_cols)]
 
         vehicle_configs_input = []
-        for i, col_name in enumerate(st.session_state.qty_cols):
+        for i, _ in enumerate(st.session_state.qty_cols):
             default_config = st.session_state.vehicle_configs[i] if i < len(st.session_state.vehicle_configs) else {"name": f"Vehicle Type {i+1}", "multiplier": 1.0}
             st.markdown(f"**Detected Column/Vehicle Type #{i+1}**")
             cols = st.columns([2, 1])
@@ -851,11 +877,11 @@ def main():
             st.session_state.master_df = processor.calculate_dynamic_consumption(st.session_state.qty_cols, [c.get('multiplier', 0) for c in vehicle_configs_input])
             st.session_state.processor = processor
 
-            # CORRECTED: Both workflows now proceed to the full processing pipeline
+            # UNIFIED WORKFLOW: Both 'create' and 'modify' now start the full processing pipeline here.
             st.session_state.app_stage = "process_family" 
             st.rerun()
 
-    elif st.session_state.app_stage.startswith("process_") or st.session_state.app_stage.startswith("review_"):
+    elif st.session_state.app_stage.startswith(("process_", "review_")):
         processing_steps = [
             {"process_stage": "process_family", "review_stage": "review_family", "method": "run_family_classification", "key": "family", "name": "Family Classification"},
             {"process_stage": "process_size", "review_stage": "review_size", "method": "run_size_classification", "key": "size_classification", "name": "Size Classification"},
@@ -879,6 +905,7 @@ def main():
                 st.header(f"Step 3: Automated Processing")
                 with st.spinner(f"Running {step['name']}..."):
                     processor = st.session_state.processor
+                    # The pincode is now passed correctly from the session state
                     if step['method'] == 'run_location_based_norms':
                         getattr(processor, step['method'])(st.session_state.pincode)
                     else:
