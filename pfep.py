@@ -619,6 +619,10 @@ def create_formatted_excel_output(df, vehicle_configs, assumed_families_df=None,
     part_class_percentages = (part_class_counts / total_classified) if total_classified > 0 else part_class_counts
     
     size_counts = df['size_classification'].value_counts().reindex(['XL', 'L', 'M', 'S']).fillna(0)
+    total_sizes = size_counts.sum()
+    size_percentages = (size_counts / total_sizes) if total_sizes > 0 else size_counts
+    size_targets = {'S': 40, 'M': 35, 'L': 20, 'XL': 5} # Target percentages for size classification
+
     packaging_counts = df['one_way_returnable'].value_counts().reindex(['One Way', 'Returnable']).fillna(0)
     wh_loc_counts = df['wh_loc'].value_counts()
     family_counts = df['family'].value_counts()
@@ -671,29 +675,34 @@ def create_formatted_excel_output(df, vehicle_configs, assumed_families_df=None,
             
             worksheet.write('P10', total_classified, header_value_format); worksheet.write('Q10', 1 if total_classified > 0 else 0, percentage_format)
 
-            worksheet.merge_range('S4:T4', 'Size Classification Count', header_title_format)
-            worksheet.write('S5', 'Size', header_label_format); worksheet.write('T5', 'Count', header_label_format)
+            worksheet.merge_range('S4:V4', 'Size Classification Count', header_title_format)
+            worksheet.write('S5', 'Size', header_label_format); worksheet.write('T5', '% Target', header_label_format)
+            worksheet.write('U5', 'Count', header_label_format); worksheet.write('V5', 'Actual %', header_label_format)
             size_row_map = {'XL': 6, 'L': 7, 'M': 8, 'S': 9}
             for size, row_num in size_row_map.items():
                 row_idx = row_num - 1
-                worksheet.write(row_idx, 18, size, header_label_format); worksheet.write(row_idx, 19, int(size_counts.get(size, 0)), header_value_format)
-            worksheet.write('T10', int(size_counts.sum()), header_value_format)
+                worksheet.write(row_idx, 18, size, header_label_format) # Column S
+                worksheet.write(row_idx, 19, size_targets.get(size, 0) / 100, percentage_format) # Column T
+                worksheet.write(row_idx, 20, int(size_counts.get(size, 0)), header_value_format) # Column U
+                worksheet.write(row_idx, 21, size_percentages.get(size, 0), percentage_format) # Column V
+            worksheet.write('U10', int(total_sizes), header_value_format)
+            worksheet.write('V10', 1 if total_sizes > 0 else 0, percentage_format)
 
-            worksheet.merge_range('V4:W4', 'Packaging Type Count', header_title_format)
-            worksheet.write('V5', 'Type', header_label_format); worksheet.write('W5', 'Count', header_label_format)
+            worksheet.merge_range('X4:Y4', 'Packaging Type Count', header_title_format)
+            worksheet.write('X5', 'Type', header_label_format); worksheet.write('Y5', 'Count', header_label_format)
             pack_row_map = {'One Way': 6, 'Returnable': 7}
             for pack_type, row_num in pack_row_map.items():
                 row_idx = row_num - 1
-                worksheet.write(row_idx, 21, pack_type, header_label_format); worksheet.write(row_idx, 22, int(packaging_counts.get(pack_type, 0)), header_value_format)
+                worksheet.write(row_idx, 23, pack_type, header_label_format); worksheet.write(row_idx, 24, int(packaging_counts.get(pack_type, 0)), header_value_format)
 
-            worksheet.merge_range('Y4:Z4', 'Warehouse Location Count', header_title_format)
-            worksheet.write('Y5', 'Location', header_label_format); worksheet.write('Z5', 'Count', header_label_format)
+            worksheet.merge_range('AA4:AB4', 'Warehouse Location Count', header_title_format)
+            worksheet.write('AA5', 'Location', header_label_format); worksheet.write('AB5', 'Count', header_label_format)
             current_row = 6
             for location, count in wh_loc_counts.items():
                 if current_row > 11:
-                    worksheet.write(current_row - 1, 24, '...and more', header_value_format); break
+                    worksheet.write(current_row - 1, 26, '...and more', header_value_format); break
                 row_idx = current_row - 1
-                worksheet.write(row_idx, 24, location, header_value_format); worksheet.write(row_idx, 25, count, header_value_format)
+                worksheet.write(row_idx, 26, location, header_value_format); worksheet.write(row_idx, 27, count, header_value_format)
                 current_row += 1
 
             # --- WRITE MAIN DATA TABLE AND HEADERS to 'Master Data Sheet' ---
