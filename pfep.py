@@ -658,11 +658,11 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
             row_map = {'AA': 6, 'A': 7, 'B': 8, 'C': 9}
             for code, row_num in row_map.items():
                 row_idx = row_num - 1
-                worksheet.write(row_idx, 13, code, header_label_format)
-                worksheet.write(row_idx, 14, format_range(code), header_value_format)
-                worksheet.write(row_idx, 15, st.session_state.processor.classifier.percentages[code]['target'] / 100, percentage_format)
-                worksheet.write(row_idx, 16, part_class_counts.get(code, 0), header_value_format)
-                worksheet.write(row_idx, 17, part_class_percentages.get(code, 0), percentage_format)
+                worksheet.write(row_idx, 12, code, header_label_format)
+                worksheet.write(row_idx, 13, format_range(code), header_value_format)
+                worksheet.write(row_idx, 14, st.session_state.processor.classifier.percentages[code]['target'] / 100, percentage_format)
+                worksheet.write(row_idx, 15, part_class_counts.get(code, 0), header_value_format)
+                worksheet.write(row_idx, 16, part_class_percentages.get(code, 0), percentage_format)
             
             worksheet.write('P10', total_classified, header_value_format)
             worksheet.write('Q10', 1 if total_classified > 0 else 0, percentage_format)
@@ -674,8 +674,8 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
             size_row_map = {'XL': 6, 'L': 7, 'M': 8, 'S': 9}
             for size, row_num in size_row_map.items():
                 row_idx = row_num - 1
-                worksheet.write(row_idx, 19, size, header_label_format) # Column T
-                worksheet.write(row_idx, 20, int(size_counts.get(size, 0)), header_value_format) # Column U
+                worksheet.write(row_idx, 18, size, header_label_format) # Column T
+                worksheet.write(row_idx, 29, int(size_counts.get(size, 0)), header_value_format) # Column U
             worksheet.write('U10', int(size_counts.sum()), header_value_format)
 
             # --- NEW: Packaging Type Count Table ---
