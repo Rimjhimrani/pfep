@@ -69,8 +69,7 @@ def get_lat_lon(pincode, country="India", city="", state="", retries=3, backoff_
             wait_time = backoff_factor * (attempt + 1)
             time.sleep(wait_time)
 
-    # Do not show a warning for every single failure, as it clutters the UI. 
-    # The main function will handle reporting.
+    st.warning(f"Geocoding failed for pincode '{pincode_str}' (City: {city}, State: {state}). Distances for this vendor will be blank. Please verify the address details.")
     return (None, None)
 
 
@@ -92,6 +91,7 @@ def read_uploaded_file(uploaded_file):
         return None
 
 def read_pfep_file(uploaded_file):
+    """Reads an Excel file assuming headers are on the second row."""
     try:
         return pd.read_excel(uploaded_file, header=1)
     except Exception as e:
@@ -877,7 +877,6 @@ def main():
             st.session_state.master_df = processor.calculate_dynamic_consumption(st.session_state.qty_cols, [c.get('multiplier', 0) for c in vehicle_configs_input])
             st.session_state.processor = processor
 
-            # UNIFIED WORKFLOW: Both 'create' and 'modify' now start the full processing pipeline here.
             st.session_state.app_stage = "process_family" 
             st.rerun()
 
@@ -905,7 +904,6 @@ def main():
                 st.header(f"Step 3: Automated Processing")
                 with st.spinner(f"Running {step['name']}..."):
                     processor = st.session_state.processor
-                    # The pincode is now passed correctly from the session state
                     if step['method'] == 'run_location_based_norms':
                         getattr(processor, step['method'])(st.session_state.pincode)
                     else:
