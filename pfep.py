@@ -620,6 +620,7 @@ def create_formatted_excel_output(df, vehicle_configs, assumed_families_df=None,
     size_counts = df['size_classification'].value_counts().reindex(['XL', 'L', 'M', 'S']).fillna(0)
     packaging_counts = df['one_way_returnable'].value_counts().reindex(['One Way', 'Returnable']).fillna(0)
     wh_loc_counts = df['wh_loc'].value_counts()
+    family_counts = df['family'].value_counts()
     
     with st.spinner("Creating the final Excel workbook with all source files..."):
         output = io.BytesIO()
@@ -690,6 +691,21 @@ def create_formatted_excel_output(df, vehicle_configs, assumed_families_df=None,
                     worksheet.write(current_row - 1, 24, '...and more', header_value_format); break
                 row_idx = current_row - 1
                 worksheet.write(row_idx, 24, location, header_value_format); worksheet.write(row_idx, 25, count, header_value_format)
+                current_row += 1
+            
+            # --- NEW: Family Count Section ---
+            worksheet.merge_range('AB4:AC4', 'Family Count', header_title_format)
+            worksheet.write('AB5', 'Family', header_label_format)
+            worksheet.write('AC5', 'Count', header_label_format)
+            current_row = 6
+            # Display up to 15 families to keep the summary section clean
+            for family, count in family_counts.items():
+                if current_row > 20: 
+                    worksheet.write(current_row - 1, 27, '...and more', header_value_format)
+                    break
+                row_idx = current_row - 1
+                worksheet.write(row_idx, 27, family, header_value_format)
+                worksheet.write(row_idx, 28, count, header_value_format)
                 current_row += 1
 
             final_df.to_excel(writer, sheet_name='Master Data Sheet', startrow=12, header=False, index=False)
