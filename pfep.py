@@ -174,8 +174,9 @@ def find_and_rename_columns(df):
 def _consolidate_bom_list(bom_list):
     """
     Combines a list of BOM DataFrames into a single DataFrame with unique parts.
-    It intelligently merges rows for the same part number from different files,
-    preserving the quantity for each respective vehicle.
+    It intelligently merges rows for the same part number from different files.
+    For each part, it takes the first non-null value found for every column,
+    preventing duplication or incorrect summation of quantities.
     """
     valid_boms = [df for df in bom_list if df is not None and 'part_id' in df.columns]
     if not valid_boms:
@@ -184,24 +185,17 @@ def _consolidate_bom_list(bom_list):
     master = pd.concat(valid_boms, ignore_index=True)
     master['part_id'] = master['part_id'].astype(str)
     
-    qty_cols = [col for col in master.columns if 'qty_veh_temp' in col]
-    other_cols = [col for col in master.columns if col not in qty_cols and col != 'part_id']
+    # Identify all columns to be processed
+    all_cols = [col for col in master.columns if col != 'part_id']
     
-    # Define the aggregation strategy
-    agg_dict = {}
-    # For quantity columns, sum them up. This works because a part's quantity
-    # for a specific vehicle will only have a value in one row of the group.
-    for col in qty_cols:
-        agg_dict[col] = 'sum'
-    # For all other descriptive columns, take the first non-null value found.
-    for col in other_cols:
-        agg_dict[col] = 'first'
+    # Define the aggregation strategy: take the first non-null value for all columns.
+    # This prevents summing quantities if a part appears in multiple files.
+    agg_dict = {col: 'first' for col in all_cols}
         
     # Group by part number and apply the aggregation
     master = master.groupby('part_id').agg(agg_dict).reset_index()
     
-    # After summing, NaNs that were treated as 0 should remain, which is fine.
-    # No need to replace 0 with NaN as this can remove legitimate zero-quantity entries.
+    # The 'first' aggregation handles NaNs correctly. No further processing is needed.
     return master
 
 
