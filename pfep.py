@@ -625,26 +625,26 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
             
             # --- 4. Write the Header Section on the Main Sheet ---
             # Daily Consumption Table
-            worksheet.merge_range('J5:L5', 'Daily consumption', header_title_format)
+            worksheet.merge_range('J5:K5', 'Daily consumption', header_title_format)
             veh_names = list(daily_consumption_values.keys())
             if len(veh_names) >= 2:
-                worksheet.write('K6', veh_names[0], header_label_format)
-                worksheet.write('L6', veh_names[1], header_label_format)
-                worksheet.write('K7', daily_consumption_values.get(veh_names[0], 0), header_value_format)
-                worksheet.write('L7', daily_consumption_values.get(veh_names[1], 0), header_value_format)
+                worksheet.write('J6', veh_names[0], header_label_format)
+                worksheet.write('K6', veh_names[1], header_label_format)
+                worksheet.write('J7', daily_consumption_values.get(veh_names[0], 0), header_value_format)
+                worksheet.write('K7', daily_consumption_values.get(veh_names[1], 0), header_value_format)
             elif len(veh_names) == 1:
-                 worksheet.write('K6', veh_names[0], header_label_format)
-                 worksheet.write('L6', "", header_label_format)
-                 worksheet.write('K7', daily_consumption_values.get(veh_names[0], 0), header_value_format)
-                 worksheet.write('L7', "", header_value_format)
+                 worksheet.write('J6', veh_names[0], header_label_format)
+                 worksheet.write('K6', "", header_label_format)
+                 worksheet.write('J7', daily_consumption_values.get(veh_names[0], 0), header_value_format)
+                 worksheet.write('K7', "", header_value_format)
 
             # Part Classification Assumption Table
-            worksheet.merge_range('N4:R4', 'Part Classification Assumption', header_title_format)
-            worksheet.write('N5', 'Class', header_label_format)
-            worksheet.write('O5', 'Calculated Range (INR)', header_label_format)
-            worksheet.write('P5', '% Target', header_label_format)
-            worksheet.write('Q5', 'Count', header_label_format)
-            worksheet.write('R5', 'Actual %', header_label_format)
+            worksheet.merge_range('M4:Q4', 'Part Classification Assumption', header_title_format)
+            worksheet.write('M5', 'Class', header_label_format)
+            worksheet.write('N5', 'Calculated Range (INR)', header_label_format)
+            worksheet.write('O5', '% Target', header_label_format)
+            worksheet.write('P5', 'Count', header_label_format)
+            worksheet.write('Q5', 'Actual %', header_label_format)
             
             calculated_ranges = st.session_state.processor.classifier.calculated_ranges
             def format_range(class_name):
@@ -664,13 +664,13 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
                 worksheet.write(row_idx, 16, part_class_counts.get(code, 0), header_value_format)
                 worksheet.write(row_idx, 17, part_class_percentages.get(code, 0), percentage_format)
             
-            worksheet.write('Q10', total_classified, header_value_format)
-            worksheet.write('R10', 1 if total_classified > 0 else 0, percentage_format)
+            worksheet.write('P10', total_classified, header_value_format)
+            worksheet.write('Q10', 1 if total_classified > 0 else 0, percentage_format)
 
             # --- NEW: Size Classification Count Table ---
-            worksheet.merge_range('T4:U4', 'Size Classification Count', header_title_format)
-            worksheet.write('T5', 'Size', header_label_format)
-            worksheet.write('U5', 'Count', header_label_format)
+            worksheet.merge_range('S4:T4', 'Size Classification Count', header_title_format)
+            worksheet.write('S5', 'Size', header_label_format)
+            worksheet.write('T5', 'Count', header_label_format)
             size_row_map = {'XL': 6, 'L': 7, 'M': 8, 'S': 9}
             for size, row_num in size_row_map.items():
                 row_idx = row_num - 1
