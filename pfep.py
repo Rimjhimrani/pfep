@@ -48,7 +48,6 @@ def get_lat_lon(pincode, country="India", city="", state="", retries=3, backoff_
         return (None, None)
 
     # Define a list of query methods to attempt in order of preference.
-    # Structured queries are generally more reliable than free-form strings.
     queries_to_try = [
         {'postalcode': pincode_str, 'city': city, 'state': state, 'country': country},
         {'postalcode': pincode_str, 'state': state, 'country': country},
@@ -58,26 +57,20 @@ def get_lat_lon(pincode, country="India", city="", state="", retries=3, backoff_
     ]
 
     for attempt in range(retries):
-        # Respect the 1 request/sec rate limit for Nominatim
-        time.sleep(1)
+        time.sleep(1) # Respect the 1 request/sec rate limit for Nominatim
         for query in queries_to_try:
             try:
                 location = GEOLOCATOR.geocode(query, exactly_one=True, timeout=10)
                 if location:
-                    # Success! Return the coordinates.
                     return (location.latitude, location.longitude)
             except Exception as e:
-                # This exception might be a timeout or a service error.
-                # We'll log it for debugging but let the loop continue to the next query/attempt.
-                print(f"Geocoding attempt {attempt+1} for query '{query}' failed with error: {e}") # Log to console for dev
-                break # If one attempt fails with an exception, break to the backoff sleep
+                print(f"Geocoding attempt {attempt+1} for query '{query}' failed with error: {e}")
+                break 
 
-        # If the inner loop completed without success, wait before the next retry
         if attempt < retries - 1:
             wait_time = backoff_factor * (attempt + 1)
             time.sleep(wait_time)
 
-    # If all retries and all query formats have failed, issue a single, clear warning.
     st.warning(f"Geocoding failed for pincode '{pincode_str}' (City: {city}, State: {state}). Distances for this vendor will be blank. Please verify the address details.")
     return (None, None)
 
@@ -110,19 +103,13 @@ def read_pfep_file(uploaded_file):
 def validate_and_parse_pfep(df):
     """
     Validates the structure of an uploaded PFEP file and transforms it into the internal format.
-    Returns:
-        - A DataFrame with internal column names.
-        - A list of detected 'qty_per_vehicle' column names in internal format.
-        - A dictionary of detected vehicle configurations (name and original column name).
     """
     uploaded_cols = set(df.columns)
 
-    # Check for core required columns
     if not {'PARTNO', 'PART DESCRIPTION', 'FAMILY', 'NET'}.issubset(uploaded_cols):
         st.error("Validation Failed: The uploaded file is missing one or more core columns: 'PARTNO', 'PART DESCRIPTION', 'FAMILY', 'NET'.")
         return None, None, None
 
-    # Identify vehicle-specific columns based on their position in the template
     try:
         part_desc_idx = df.columns.get_loc('PART DESCRIPTION')
         total_idx = df.columns.get_loc('TOTAL')
@@ -131,21 +118,17 @@ def validate_and_parse_pfep(df):
         st.error("Validation Failed: Could not find 'PART DESCRIPTION' or 'TOTAL' columns to identify vehicle types.")
         return None, None, None
 
-    # Reverse the mapping from PFEP names to internal names
     all_mappings = {**PFEP_COLUMN_MAP, **INTERNAL_TO_PFEP_NEW_COLS}
     reverse_map = {v: k for k, v in all_mappings.items()}
-
     df.rename(columns=reverse_map, inplace=True)
 
-    # Convert vehicle columns to internal format (qty_veh_0, qty_veh_1, etc.)
     vehicle_configs, internal_qty_cols = [], []
     for i, col_name in enumerate(vehicle_qty_pfep_cols):
         internal_name = f"qty_veh_{i}"
         df.rename(columns={col_name: internal_name}, inplace=True)
         internal_qty_cols.append(internal_name)
-        vehicle_configs.append({"name": col_name, "multiplier": 1.0}) # Default multiplier
+        vehicle_configs.append({"name": col_name, "multiplier": 1.0})
 
-    # Convert all part_id to string to avoid merge issues
     if 'part_id' in df.columns:
         df['part_id'] = df['part_id'].astype(str)
 
@@ -181,9 +164,8 @@ def _consolidate_bom_list(bom_list):
     qty_cols = [col for col in master.columns if 'qty_veh_temp' in col]
     other_cols = [col for col in master.columns if col not in qty_cols and col != 'part_id']
     
-    agg_dict = {}
-    for col in qty_cols: agg_dict[col] = 'sum'
-    for col in other_cols: agg_dict[col] = 'first'
+    agg_dict = {col: 'sum' for col in qty_cols}
+    agg_dict.update({col: 'first' for col in other_cols})
         
     master[qty_cols] = master[qty_cols].fillna(0)
     master['part_id'] = master['part_id'].astype(str)
@@ -195,7 +177,6 @@ def _consolidate_bom_list(bom_list):
     return master
 
 def _merge_supplementary_df(main_df, new_df):
-    """Merges supplementary data based on 'part_id'."""
     if 'part_id' not in new_df.columns: return main_df
     
     main_df['part_id'] = main_df['part_id'].astype(str)
@@ -215,38 +196,28 @@ def _merge_supplementary_df(main_df, new_df):
     return main_df.reset_index()
 
 def _merge_vendor_df(main_df, vendor_df):
-    """Merges vendor master data based on 'vendor_code'."""
     if 'vendor_code' not in main_df.columns or 'vendor_code' not in vendor_df.columns:
         st.warning("Skipping a vendor file merge: 'vendor_code' column not found in both the base BOM and the vendor master file.")
         return main_df
 
-    # Prepare keys for merging
     main_df['vendor_code'] = main_df['vendor_code'].astype(str)
     vendor_df['vendor_code'] = vendor_df['vendor_code'].astype(str)
-    
-    # In vendor_df, keep only the first entry for each vendor code to prevent data duplication
     vendor_df.drop_duplicates(subset=['vendor_code'], keep='first', inplace=True)
     
-    # Perform a left merge. Suffix '_existing' is added to conflicting columns from main_df.
     merged_df = pd.merge(main_df, vendor_df, on='vendor_code', how='left', suffixes=('_existing', ''))
     
-    # Coalesce the data: prioritize data from vendor_df, but fill any gaps with original data from main_df
     for col in vendor_df.columns:
-        if col == 'vendor_code':
-            continue
+        if col == 'vendor_code': continue
         
         existing_col_name = f"{col}_existing"
         if existing_col_name in merged_df.columns:
-            # Prioritize the new data, fill NaN with existing data, then drop the redundant existing column
             merged_df[col] = merged_df[col].fillna(merged_df[existing_col_name])
             merged_df.drop(columns=[existing_col_name], inplace=True)
             
     return merged_df
 
 def load_all_files(uploaded_files):
-    # This dictionary will store the processed dataframes for the application logic
     file_types = { "pbom": [], "mbom": [], "part_attribute": [], "packaging": [], "vendor_master": [] }
-    # This dictionary will store the raw, unmodified dataframes for the final report
     st.session_state['source_files_for_report'] = { "pbom": [], "mbom": [], "part_attribute": [], "packaging": [], "vendor_master": [] }
     
     with st.spinner("Processing uploaded files..."):
@@ -256,18 +227,12 @@ def load_all_files(uploaded_files):
             for f in file_list:
                 df = read_uploaded_file(f)
                 if df is not None:
-                    # Store a copy of the raw dataframe before any modifications
                     st.session_state['source_files_for_report'][key].append(df.copy())
-
-                    # Now, proceed with processing the original dataframe
                     processed_df = find_and_rename_columns(df)
                     
                     if key == 'mbom' and 'supply_condition' in processed_df.columns:
                         initial_count = len(processed_df)
-                        # Ensure the column is of string type and handle NaNs by filling with an empty string
                         supply_conditions_lower = processed_df['supply_condition'].astype(str).str.lower()
-                        # Create a boolean mask for rows to be removed
-                        # The tilde (~) inverts the mask, keeping all rows that do NOT match the conditions
                         mask_to_remove = (supply_conditions_lower.str.contains('inhouse', na=False) |
                                           supply_conditions_lower.str.contains('make', na=False) |
                                           (supply_conditions_lower == 'e'))
@@ -285,21 +250,17 @@ def finalize_master_df(base_bom_df, supplementary_dfs):
         final_df = base_bom_df
         part_attr_dfs, vendor_master_dfs, packaging_dfs = supplementary_dfs
 
-        # Process Part Attribute and Packaging files using 'part_id' as the key
         for df in part_attr_dfs + packaging_dfs:
             if df is not None and 'part_id' in df.columns:
                 final_df = _merge_supplementary_df(final_df, df)
 
-        # Process Vendor Master files using 'vendor_code' as the key
         for df in vendor_master_dfs:
             if df is not None:
                 final_df = _merge_vendor_df(final_df, df)
         
         final_df.drop_duplicates(subset=['part_id'], keep='first', inplace=True)
         
-        # Cast each column name to a string to prevent a TypeError if a column name is numeric.
         detected_qty_cols = sorted([col for col in final_df.columns if 'qty_veh_temp_' in str(col)])
-
         rename_map = {old_name: f"qty_veh_{i}" for i, old_name in enumerate(detected_qty_cols)}
         final_df.rename(columns=rename_map, inplace=True)
         final_qty_cols = sorted(rename_map.values())
@@ -319,7 +280,7 @@ class PartClassificationSystem:
         self.calculated_ranges = {}
 
     def calculate_percentage_ranges(self, df, price_column):
-        valid_prices = pd.to_numeric(df[price_column], errors='coerce').dropna().sort_values(ascending=False) # Descending for easier slicing
+        valid_prices = pd.to_numeric(df[price_column], errors='coerce').dropna().sort_values(ascending=False)
         if valid_prices.empty:
             st.warning("No valid prices found to calculate part classification ranges.")
             return
@@ -328,11 +289,10 @@ class PartClassificationSystem:
         st.write(f"Calculating classification ranges from {total_valid_parts} valid prices...")
         
         ranges, current_idx = {}, 0
-        # Process from highest value (AA) to lowest (C)
         processing_order = ['AA', 'A', 'B', 'C']
         
         for class_name in processing_order:
-            if class_name == 'C': # 'C' class gets all remaining parts
+            if class_name == 'C':
                 if current_idx < total_valid_parts:
                     ranges[class_name] = {'min': 0, 'max': valid_prices.iloc[current_idx]}
                 continue
@@ -355,7 +315,6 @@ class PartClassificationSystem:
         if pd.isna(unit_price) or not isinstance(unit_price, (int, float)): return np.nan
         if not self.calculated_ranges: return 'Unclassified'
         
-        # Use the calculated min thresholds for classification
         if unit_price >= self.calculated_ranges.get('AA', {'min': float('inf')})['min']: return 'AA'
         if unit_price >= self.calculated_ranges.get('A', {'min': float('inf')})['min']: return 'A'
         if unit_price >= self.calculated_ranges.get('B', {'min': float('inf')})['min']: return 'B'
@@ -382,42 +341,9 @@ class ComprehensiveInventoryProcessor:
             self.data[daily_col_name] = self.data[col] * multipliers[i]
             daily_cols.append(daily_col_name)
 
-        self.data['TOTAL'] = self.data[qty_cols].sum(axis=1) if qty_cols else 0
-        self.data['net_daily_consumption'] = self.data[daily_cols].sum(axis=1) if daily_cols else 0
+        self.data['TOTAL'] = self.data[qty_cols].sum(axis=1, skipna=True) if qty_cols else 0
+        self.data['net_daily_consumption'] = self.data[daily_cols].sum(axis=1, skipna=True) if daily_cols else 0
         st.success("Consumption calculated.")
-        return self.data
-
-    def recalculate_for_modify(self):
-        st.subheader("Recalculating Consumption-Dependent Values")
-
-        # Lifespan - depends on net_daily_consumption which should be calculated right before calling this
-        net_daily = pd.to_numeric(self.data['net_daily_consumption'], errors='coerce')
-        if 'qty_per_pack_prim' in self.data.columns:
-            qty_prim = pd.to_numeric(self.data['qty_per_pack_prim'], errors='coerce')
-            self.data['prim_pack_lifespan'] = np.divide(qty_prim, net_daily, out=np.full_like(qty_prim, np.nan, dtype=float), where=net_daily!=0)
-        if 'qty_per_pack' in self.data.columns:
-            qty_sec = pd.to_numeric(self.data['qty_per_pack'], errors='coerce')
-            self.data['sec_pack_lifespan'] = np.divide(qty_sec, net_daily, out=np.full_like(qty_sec, np.nan, dtype=float), where=net_daily!=0)
-        st.write("   ...Package lifespans updated.")
-
-        # Inventory Norms (QTY/INR parts only)
-        # 'RM IN DAYS' should already exist from the initial PFEP creation/upload
-        if 'RM IN DAYS' in self.data.columns and 'net_daily_consumption' in self.data.columns:
-            self.data['RM IN QTY'] = self.data['RM IN DAYS'] * self.data['net_daily_consumption']
-            if 'unit_price' in self.data.columns:
-                 self.data['RM IN INR'] = self.data['RM IN QTY'] * pd.to_numeric(self.data.get('unit_price'), errors='coerce')
-
-            if 'qty_per_pack' in self.data.columns:
-                qty_per_pack = pd.to_numeric(self.data['qty_per_pack'], errors='coerce').fillna(1).replace(0, 1)
-                self.data['NO OF SEC. PACK REQD.'] = np.ceil(self.data['RM IN QTY'] / qty_per_pack)
-                if 'packing_factor' in self.data.columns:
-                    packing_factor = pd.to_numeric(self.data['packing_factor'], errors='coerce').fillna(1)
-                    self.data['NO OF SEC REQ. AS PER PF'] = np.ceil(self.data['NO OF SEC. PACK REQD.'] * packing_factor)
-            st.write("   ...Inventory quantities (RM Qty, INR, Packs) updated.")
-        else:
-            st.warning("Could not recalculate inventory norms because 'RM IN DAYS' or consumption data was missing.")
-        
-        st.success("✅ Consumption-dependent fields recalculated.")
         return self.data
 
     def run_family_classification(self):
@@ -533,8 +459,8 @@ class ComprehensiveInventoryProcessor:
         self.data['RM IN INR'] = self.data['RM IN QTY'] * pd.to_numeric(self.data.get('unit_price'), errors='coerce')
         qty_per_pack = pd.to_numeric(self.data.get('qty_per_pack'), errors='coerce').fillna(1).replace(0, 1)
         packing_factor = pd.to_numeric(self.data.get('packing_factor'), errors='coerce').fillna(1)
-        self.data['NO OF SEC. PACK REQD.'] = np.ceil(self.data['RM IN QTY'] / qty_per_pack)
-        self.data['NO OF SEC REQ. AS PER PF'] = np.ceil(self.data['NO OF SEC. PACK REQD.'] * packing_factor)
+        self.data['NO OF SEC. REQD.'] = np.ceil(self.data['RM IN QTY'] / qty_per_pack)
+        self.data['NO OF SEC REQ. AS PER PF'] = np.ceil(self.data['NO OF SEC. REQD.'] * packing_factor)
         st.success(f"✅ Inventory norms calculated.")
 
     def run_warehouse_location_assignment(self):
@@ -602,7 +528,6 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
     total_classified = part_class_counts.sum()
     part_class_percentages = (part_class_counts / total_classified) if total_classified > 0 else part_class_counts
     
-    # --- NEW: Added calculations for new summary tables ---
     size_counts = df['size_classification'].value_counts().reindex(['XL', 'L', 'M', 'S']).fillna(0)
     packaging_counts = df['one_way_returnable'].value_counts().reindex(['One Way', 'Returnable']).fillna(0)
     wh_loc_counts = df['wh_loc'].value_counts()
@@ -617,14 +542,12 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
             h_gray = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'align': 'center', 'fg_color': '#D9D9D9', 'border': 1})
             s_orange = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#FDE9D9', 'border': 1})
             s_blue = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'fg_color': '#DCE6F1', 'border': 1})
-            
             header_title_format = workbook.add_format({'bold': True, 'align': 'center', 'valign': 'vcenter', 'border': 1, 'fg_color': '#D9D9D9'})
             header_label_format = workbook.add_format({'bold': True, 'align': 'center', 'border': 1})
             header_value_format = workbook.add_format({'align': 'center', 'border': 1})
             percentage_format = workbook.add_format({'align': 'center', 'border': 1, 'num_format': '0.0%'})
             
             # --- 4. Write the Header Section on the Main Sheet ---
-            # Daily Consumption Table
             worksheet.merge_range('J5:K5', 'Daily consumption', header_title_format)
             veh_names = list(daily_consumption_values.keys())
             if len(veh_names) >= 2:
@@ -638,12 +561,9 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
                  worksheet.write('J7', daily_consumption_values.get(veh_names[0], 0), header_value_format)
                  worksheet.write('K7', "", header_value_format)
 
-            # Part Classification Assumption Table
             worksheet.merge_range('M4:Q4', 'Part Classification Assumption', header_title_format)
-            worksheet.write('M5', 'Class', header_label_format)
-            worksheet.write('N5', 'Calculated Range (INR)', header_label_format)
-            worksheet.write('O5', '% Target', header_label_format)
-            worksheet.write('P5', 'Count', header_label_format)
+            worksheet.write('M5', 'Class', header_label_format); worksheet.write('N5', 'Calculated Range (INR)', header_label_format)
+            worksheet.write('O5', '% Target', header_label_format); worksheet.write('P5', 'Count', header_label_format)
             worksheet.write('Q5', 'Actual %', header_label_format)
             
             calculated_ranges = st.session_state.processor.classifier.calculated_ranges
@@ -667,39 +587,33 @@ def create_formatted_excel_output(df, vehicle_configs, source_files_dict=None):
             worksheet.write('P10', total_classified, header_value_format)
             worksheet.write('Q10', 1 if total_classified > 0 else 0, percentage_format)
 
-            # --- NEW: Size Classification Count Table ---
             worksheet.merge_range('S4:T4', 'Size Classification Count', header_title_format)
-            worksheet.write('S5', 'Size', header_label_format)
-            worksheet.write('T5', 'Count', header_label_format)
+            worksheet.write('S5', 'Size', header_label_format); worksheet.write('T5', 'Count', header_label_format)
             size_row_map = {'XL': 6, 'L': 7, 'M': 8, 'S': 9}
             for size, row_num in size_row_map.items():
                 row_idx = row_num - 1
-                worksheet.write(row_idx, 18, size, header_label_format) # Column T
-                worksheet.write(row_idx, 19, int(size_counts.get(size, 0)), header_value_format) # Column U
+                worksheet.write(row_idx, 18, size, header_label_format)
+                worksheet.write(row_idx, 19, int(size_counts.get(size, 0)), header_value_format)
             worksheet.write('T10', int(size_counts.sum()), header_value_format)
 
-            # --- NEW: Packaging Type Count Table ---
-            worksheet.merge_range('W4:X4', 'Packaging Type Count', header_title_format)
-            worksheet.write('W5', 'Type', header_label_format)
-            worksheet.write('X5', 'Count', header_label_format)
+            worksheet.merge_range('V4:W4', 'Packaging Type Count', header_title_format)
+            worksheet.write('V5', 'Type', header_label_format); worksheet.write('W5', 'Count', header_label_format)
             pack_row_map = {'One Way': 6, 'Returnable': 7}
             for pack_type, row_num in pack_row_map.items():
                 row_idx = row_num - 1
-                worksheet.write(row_idx, 22, pack_type, header_label_format) # Column W
-                worksheet.write(row_idx, 23, int(packaging_counts.get(pack_type, 0)), header_value_format) # Column X
+                worksheet.write(row_idx, 21, pack_type, header_label_format)
+                worksheet.write(row_idx, 22, int(packaging_counts.get(pack_type, 0)), header_value_format)
 
-            # --- NEW: Warehouse Location Count Table ---
-            worksheet.merge_range('Z4:AA4', 'Warehouse Location Count', header_title_format)
-            worksheet.write('Z5', 'Location', header_label_format)
-            worksheet.write('AA5', 'Count', header_label_format)
+            worksheet.merge_range('Y4:Z4', 'Warehouse Location Count', header_title_format)
+            worksheet.write('Y5', 'Location', header_label_format); worksheet.write('Z5', 'Count', header_label_format)
             current_row = 6
             for location, count in wh_loc_counts.items():
-                if current_row > 11: # Stop before hitting the main table headers
-                    worksheet.write(current_row - 1, 25, '...and more', header_value_format)
+                if current_row > 11:
+                    worksheet.write(current_row - 1, 24, '...and more', header_value_format)
                     break
                 row_idx = current_row - 1
-                worksheet.write(row_idx, 25, location, header_value_format) # Column Z
-                worksheet.write(row_idx, 26, count, header_value_format)      # Column AA
+                worksheet.write(row_idx, 24, location, header_value_format)
+                worksheet.write(row_idx, 25, count, header_value_format)
                 current_row += 1
 
             # --- 5. Write the Main PFEP Data Table ---
@@ -802,14 +716,12 @@ def render_review_step(step_name, internal_key, next_stage):
 def main():
     st.title("🏭 PFEP (Plan For Each Part) ANALYSER")
 
-    # Initialize session state variables
     for key in ['app_stage', 'master_df', 'qty_cols', 'final_report', 'processor', 'all_files', 'vehicle_configs', 'pincode', 'workflow_mode', 'source_files_for_report']:
         if key not in st.session_state:
             st.session_state[key] = None if key != 'app_stage' else 'welcome'
     
     # --- State Machine using if/elif for robustness ---
     
-    # --- Stage: Welcome ---
     if st.session_state.app_stage == "welcome":
         st.header("What would you like to do?")
         col1, col2 = st.columns(2)
@@ -824,7 +736,6 @@ def main():
                 st.session_state.app_stage = 'modify_upload'
                 st.rerun()
 
-    # --- Stage: Modify PFEP Upload ---
     elif st.session_state.app_stage == "modify_upload":
         st.header("Step 1: Upload and Validate Existing PFEP")
         st.info("Upload your existing PFEP Excel file. The application will check if the headers match the standard structure before proceeding.")
@@ -832,30 +743,27 @@ def main():
         uploaded_pfep = st.file_uploader("Upload PFEP file", type=['xlsx'], label_visibility="collapsed")
         pincode = st.text_input("Enter your location's pincode for distance calculations", value="411001")
 
-        if uploaded_pfep is not None:
-            if st.button("Validate and Proceed", type="primary"):
-                with st.spinner("Validating PFEP file structure..."):
-                    uploaded_pfep_bytes = uploaded_pfep.getvalue()
-                    
-                    pfep_df_for_process = read_pfep_file(io.BytesIO(uploaded_pfep_bytes))
-                    
-                    try:
-                        raw_pfep_df = pd.read_excel(io.BytesIO(uploaded_pfep_bytes))
-                        st.session_state['source_files_for_report'] = {'Original_PFEP': [raw_pfep_df]}
-                    except Exception as e:
-                        st.warning(f"Could not store the original PFEP for the final report due to a reading error: {e}")
+        if uploaded_pfep and st.button("Validate and Proceed", type="primary"):
+            with st.spinner("Validating PFEP file structure..."):
+                uploaded_pfep_bytes = uploaded_pfep.getvalue()
+                pfep_df_for_process = read_pfep_file(io.BytesIO(uploaded_pfep_bytes))
+                
+                try:
+                    raw_pfep_df = pd.read_excel(io.BytesIO(uploaded_pfep_bytes))
+                    st.session_state['source_files_for_report'] = {'Original_PFEP': [raw_pfep_df]}
+                except Exception as e:
+                    st.warning(f"Could not store the original PFEP for the final report due to a reading error: {e}")
 
-                    if pfep_df_for_process is not None:
-                        parsed_df, qty_cols, vehicle_configs = validate_and_parse_pfep(pfep_df_for_process)
-                        if parsed_df is not None:
-                            st.session_state.master_df = parsed_df
-                            st.session_state.qty_cols = qty_cols
-                            st.session_state.vehicle_configs = vehicle_configs
-                            st.session_state.pincode = pincode
-                            st.session_state.app_stage = "configure"
-                            st.rerun()
+                if pfep_df_for_process is not None:
+                    parsed_df, qty_cols, vehicle_configs = validate_and_parse_pfep(pfep_df_for_process)
+                    if parsed_df is not None:
+                        st.session_state.master_df = parsed_df
+                        st.session_state.qty_cols = qty_cols
+                        st.session_state.vehicle_configs = vehicle_configs
+                        st.session_state.pincode = pincode
+                        st.session_state.app_stage = "configure"
+                        st.rerun()
 
-    # --- Stage: Create New PFEP Upload ---
     elif st.session_state.app_stage == "upload":
         st.header("Step 1: Upload Data Files to Create a New PFEP")
         uploaded_files = {}
@@ -888,7 +796,6 @@ def main():
                         st.error("Failed to consolidate BOM data. Please check your files.")
                 st.rerun()
 
-    # --- Stage: BOM Selection (Create-only) ---
     elif st.session_state.app_stage == "bom_selection":
         st.header("Step 1.5: BOM Base Selection")
         st.info("You uploaded both PBOM and MBOM files. Choose the base for the PFEP analysis.")
@@ -913,7 +820,6 @@ def main():
                 st.session_state.app_stage = "configure"
                 st.rerun()
 
-    # --- Stage: Configure Consumption (Shared by Create & Modify) ---
     elif st.session_state.app_stage == "configure":
         header_text = "Step 2: Modify Daily Production Plan" if st.session_state.workflow_mode == 'modify' else "Step 2: Configure Daily Consumption"
         info_text = "Modify the daily production for each vehicle type to recalculate the PFEP." if st.session_state.workflow_mode == 'modify' else "Provide a name and daily production for each detected vehicle type."
@@ -945,16 +851,10 @@ def main():
             st.session_state.master_df = processor.calculate_dynamic_consumption(st.session_state.qty_cols, [c.get('multiplier', 0) for c in vehicle_configs_input])
             st.session_state.processor = processor
 
-            if st.session_state.workflow_mode == 'modify':
-                with st.spinner("Recalculating consumption-based fields..."):
-                    st.session_state.master_df = processor.recalculate_for_modify()
-                st.session_state.app_stage = "generate_report"
-                st.rerun()
-            else: # 'create' workflow
-                st.session_state.app_stage = "process_family"
-                st.rerun()
+            # CORRECTED: Both workflows now proceed to the full processing pipeline
+            st.session_state.app_stage = "process_family" 
+            st.rerun()
 
-    # --- Stages: Processing & Review Steps (Create-only) ---
     elif st.session_state.app_stage.startswith("process_") or st.session_state.app_stage.startswith("review_"):
         processing_steps = [
             {"process_stage": "process_family", "review_stage": "review_family", "method": "run_family_classification", "key": "family", "name": "Family Classification"},
@@ -965,7 +865,6 @@ def main():
             {"process_stage": "process_wh", "review_stage": "review_wh", "method": "run_warehouse_location_assignment", "key": "wh_loc", "name": "Warehouse Location"},
         ]
         
-        # Find the current step
         current_step_index = -1
         for i, step in enumerate(processing_steps):
             if st.session_state.app_stage in [step['process_stage'], step['review_stage']]:
@@ -991,7 +890,6 @@ def main():
             elif st.session_state.app_stage == step['review_stage']:
                 render_review_step(step['name'], step['key'], next_stage)
 
-    # --- Stage: Generate Report (Shared by Create & Modify) ---
     elif st.session_state.app_stage == "generate_report":
         report_data = create_formatted_excel_output(st.session_state.master_df, st.session_state.vehicle_configs, source_files_dict=st.session_state.get('source_files_for_report'))
         st.session_state.final_report = report_data
@@ -1000,12 +898,10 @@ def main():
         st.session_state.app_stage = "download"
         st.rerun()
 
-    # --- Stage: Download Report (Shared by Create & Modify) ---
     elif st.session_state.app_stage == "download":
         st.header("Step 4: Download Final Report")
         st.download_button(label="📥 Download Structured Inventory Data Final.xlsx", data=st.session_state.final_report, file_name='structured_inventory_data_final.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         if st.button("Start Over"):
-            # Clear all session state to start fresh
             for key in st.session_state.keys():
                 del st.session_state[key]
             st.rerun()
