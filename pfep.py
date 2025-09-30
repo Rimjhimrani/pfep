@@ -243,8 +243,8 @@ def _merge_vendor_df(main_df, vendor_df):
     return merged_df
 
 def load_all_files(uploaded_files):
-    file_types = { "pbom": [], "mbom": [], "part_attribute": [], "packaging": [], "vendor_master": [] }
-    st.session_state['source_files_for_report'] = { "pbom": [], "mbom": [], "part_attribute": [], "packaging": [], "vendor_master": [] }
+    file_types = { "pbom": [], "mbom": [], "part_attribute": [], "packaging": [], "vendor_master": [], "wh_location": [] }
+    st.session_state['source_files_for_report'] = { "pbom": [], "mbom": [], "part_attribute": [], "packaging": [], "vendor_master": [], "wh_location": [] }
     
     with st.spinner("Processing uploaded files..."):
         for key, files in uploaded_files.items():
@@ -279,15 +279,23 @@ def load_all_files(uploaded_files):
     return file_types
 
 
-def finalize_master_df(base_bom_df, supplementary_dfs):
+def finalize_master_df(base_bom_df, all_files_dict):
     with st.spinner("Consolidating final dataset..."):
         final_df = base_bom_df
-        part_attr_dfs, vendor_master_dfs, packaging_dfs = supplementary_dfs
 
-        for df in part_attr_dfs + packaging_dfs:
+        # Get all supplementary file lists from the dictionary
+        part_attr_dfs = all_files_dict.get('part_attribute', [])
+        packaging_dfs = all_files_dict.get('packaging', [])
+        wh_location_dfs = all_files_dict.get('wh_location', [])
+        vendor_master_dfs = all_files_dict.get('vendor_master', [])
+
+        # Combine all part-level supplementary files (those that merge on part_id)
+        part_level_files = part_attr_dfs + packaging_dfs + wh_location_dfs
+        for df in part_level_files:
             if df is not None and 'part_id' in df.columns:
                 final_df = _merge_supplementary_df(final_df, df)
 
+        # Merge vendor master files separately (as they merge on vendor_code)
         for df in vendor_master_dfs:
             if df is not None:
                 final_df = _merge_vendor_df(final_df, df)
@@ -910,9 +918,12 @@ def main():
         st.header("Step 1: Upload Data Files to Create a New PFEP")
         uploaded_files = {}
         file_options = [ 
-            ("PBOM", "pbom", True), ("MBOM", "mbom", True), 
-            ("Part Attribute", "part_attribute", True), ("Vendor Master", "vendor_master", False), 
-            ("Packaging Details", "packaging", True)
+            ("PBOM", "pbom", True), 
+            ("MBOM", "mbom", True), 
+            ("Part Attribute", "part_attribute", True), 
+            ("Vendor Master", "vendor_master", False), 
+            ("Packaging Details", "packaging", True),
+            ("Warehouse Location Master", "wh_location", False)
         ]
         for display_name, key_name, is_multiple in file_options:
             with st.expander(f"Upload {display_name} File(s)"):
@@ -931,8 +942,7 @@ def main():
                     bom_dfs = st.session_state.all_files['pbom'] + st.session_state.all_files['mbom']
                     base_bom = _consolidate_bom_list(bom_dfs)
                     if base_bom is not None:
-                        supp_dfs = [st.session_state.all_files[k] for k in ['part_attribute', 'vendor_master', 'packaging']]
-                        st.session_state.master_df, st.session_state.qty_cols, st.session_state.vehicle_configs = finalize_master_df(base_bom, supp_dfs)
+                        st.session_state.master_df, st.session_state.qty_cols, st.session_state.vehicle_configs = finalize_master_df(base_bom, st.session_state.all_files)
                         st.session_state.app_stage = "configure"
                     else:
                         st.error("Failed to consolidate BOM data. Please check your files.")
@@ -957,8 +967,7 @@ def main():
         if st.button("Confirm Selection and Continue"):
             base_bom_df = { 'Use PBOM as base': master_pbom, 'Use MBOM as base': master_mbom, 'Combine both PBOM and MBOM': _consolidate_bom_list([master_pbom, master_mbom]) }[bom_choice]
             if base_bom_df is not None:
-                supp_dfs = [all_files[k] for k in ['part_attribute', 'vendor_master', 'packaging']]
-                st.session_state.master_df, st.session_state.qty_cols, st.session_state.vehicle_configs = finalize_master_df(base_bom_df, supp_dfs)
+                st.session_state.master_df, st.session_state.qty_cols, st.session_state.vehicle_configs = finalize_master_df(base_bom_df, all_files)
                 st.session_state.app_stage = "configure"
                 st.rerun()
 
