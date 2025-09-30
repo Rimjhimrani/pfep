@@ -155,8 +155,11 @@ def find_and_rename_columns(df):
     # Create a mapping from lowercase, stripped column names to their original casing
     lower_to_original = {str(col).lower().strip(): col for col in original_cols}
 
-    # Find matches for PFEP_COLUMN_MAP
-    for internal_key, pfep_name in PFEP_COLUMN_MAP.items():
+    # Combine all known column mappings
+    all_known_mappings = {**PFEP_COLUMN_MAP, **INTERNAL_TO_PFEP_NEW_COLS}
+
+    # Find matches for all known columns
+    for internal_key, pfep_name in all_known_mappings.items():
         pfep_lower = pfep_name.lower()
         if pfep_lower in lower_to_original:
             rename_dict[lower_to_original[pfep_lower]] = internal_key
@@ -556,10 +559,12 @@ class ComprehensiveInventoryProcessor:
 
     def run_warehouse_location_assignment(self):
         st.subheader("(F) Warehouse Location Assignment")
+    
+        # Step 1: Perform automated assignment into a temporary column
         if 'family' not in self.data.columns:
-            self.data['wh_loc'] = 'HRR'
+            self.data['wh_loc_automated'] = 'HRR' # Default location
         else:
-            def get_wh_loc(row):
+            def get_automated_wh_loc(row):
                 fam, desc, vol_m3 = row.get('family', 'Others'), row.get('description', ''), row.get('volume_m3', None)
                 match = lambda w: re.search(r'\b' + re.escape(w) + r'\b', str(desc).upper())
                 if fam == "AC" and match("BCS"): return "OUTSIDE"
@@ -573,13 +578,34 @@ class ComprehensiveInventoryProcessor:
                 if fam == "Wheels":
                     if match("TYRE") and match("JK"): return "OUTSIDE"
                     if match("RIM"): return "MRR(C-01)"
-                return BASE_WAREHOUSE_MAPPING.get(fam, "HRR")
-            self.data['wh_loc'] = self.data.apply(get_wh_loc, axis=1)
+                return BASE_WAREHOUSE_MAPPING.get(fam, "HRR") # Default from mapping
+            self.data['wh_loc_automated'] = self.data.apply(get_automated_wh_loc, axis=1)
+
+        # Step 2: Merge automated locations with any locations from the source files.
+        # The 'wh_loc' column will exist if it was present in any of the uploaded files.
+        if 'wh_loc' in self.data.columns:
+            # Replace empty strings with NaN to ensure fillna works correctly
+            self.data['wh_loc'] = self.data['wh_loc'].replace('', np.nan)
+            # The file's value takes precedence. Fill any missing values in 'wh_loc'
+            # with the corresponding automated values.
+            self.data['wh_loc'] = self.data['wh_loc'].fillna(self.data['wh_loc_automated'])
+            st.info("Merged warehouse locations from source files with automated logic. Source file values took precedence where available.")
+        else:
+            # If no 'wh_loc' column came from the files, just use the automated one.
+            self.data['wh_loc'] = self.data['wh_loc_automated']
+
+        # Step 3: Clean up the temporary column
+        self.data.drop(columns=['wh_loc_automated'], inplace=True)
         
-        loc_expansion_map = { 'HRR': 'High Rise Rack (HRR)', 'CRL': 'Carousal (CRL)', 'MEZ': 'Mezzanine (MEZ)', 'CTR': 'Cantilever (CTR)', 'MRR': 'Mid Rise Rack (MRR)' }
+        # Step 4: Apply the location name expansion for consistency
+        loc_expansion_map = {
+            'HRR': 'High Rise Rack (HRR)', 'CRL': 'Carousal (CRL)', 'MEZ': 'Mezzanine (MEZ)',
+            'CTR': 'Cantilever (CTR)', 'MRR': 'Mid Rise Rack (MRR)'
+        }
         for short, long in loc_expansion_map.items():
             self.data['wh_loc'] = self.data['wh_loc'].astype(str).str.replace(short, long, regex=False)
-        st.success("✅ Automated warehouse location assignment complete.")
+            
+        st.success("✅ Warehouse location assignment complete.")
 
 # --- 4. UI AND REPORTING FUNCTIONS ---
 def create_formatted_excel_output(df, vehicle_configs, assumed_families_df=None, source_files_dict=None):
