@@ -254,30 +254,60 @@ def load_all_files(uploaded_files):
                 df = read_uploaded_file(f)
                 if df is not None:
                     st.session_state['source_files_for_report'][key].append(df.copy())
-                    processed_df = find_and_rename_columns(df)
+                    
+                    # --- MODIFICATION START ---
+                    # The original code used a single generic renaming function for all files.
+                    # This new code treats the warehouse location file as a special case
+                    # to make its column identification much more flexible.
+                    
+                    processed_df = df.copy() # Start with a copy of the original data
+
+                    if key == 'wh_location':
+                        # For the warehouse file, intelligently find and rename Part No. and Location columns
+                        rename_map = {}
+                        # Define common alternative names for the required columns
+                        part_id_aliases = ['partno', 'part_no', 'part id', 'part number', 'item code']
+                        wh_loc_aliases = ['wh loc', 'wh_loc', 'warehouse location', 'location', 'storage location']
+                        
+                        found_part_id = False
+                        found_wh_loc = False
+
+                        for col in processed_df.columns:
+                            col_lower = str(col).lower().strip()
+                            if not found_part_id and col_lower in part_id_aliases:
+                                rename_map[col] = 'part_id'
+                                found_part_id = True
+                            elif not found_wh_loc and col_lower in wh_loc_aliases:
+                                rename_map[col] = 'wh_loc'
+                                found_wh_loc = True
+                        
+                        processed_df.rename(columns=rename_map, inplace=True)
+                        
+                        # Provide feedback to the user if columns were not found
+                        if not found_part_id or not found_wh_loc:
+                            st.warning(f"In the warehouse file '{f.name}', we could not find both a part number and a location column. "
+                                       f"Please ensure the file contains columns like 'PARTNO' and 'WH LOC'. The data from this file may not be applied.")
+                        else:
+                             st.info(f"Successfully identified part number and location columns in '{f.name}'.")
+
+                    # For all other files, and to catch any other standard columns in the WH file,
+                    # we still run the generic renaming function.
+                    processed_df = find_and_rename_columns(processed_df)
+
+                    # --- MODIFICATION END ---
                     
                     if key == 'mbom' and 'supply_condition' in processed_df.columns:
                         initial_count = len(processed_df)
-                        
-                        # Create a Series for filtering, handling NaNs, stripping whitespace, and lowercasing
                         supply_conditions = processed_df['supply_condition'].astype(str).str.strip().str.lower()
-                        
-                        # Define the exact terms to remove
                         terms_to_remove = ['inhouse', 'make', 'e']
-                        
-                        # Create a boolean mask for rows to be removed using isin for strict, exact matches
                         mask_to_remove = supply_conditions.isin(terms_to_remove)
-                        
-                        # Apply the mask to keep only the desired rows
                         processed_df = processed_df[~mask_to_remove]
-                        
                         removed_count = initial_count - len(processed_df)
                         if removed_count > 0:
                             st.info(f"   Removed {removed_count} parts from an MBOM file with supply condition 'Inhouse', 'Make', or 'E'.")
 
                     file_types[key].append(processed_df)
     return file_types
-
 
 def finalize_master_df(base_bom_df, all_files_dict):
     with st.spinner("Consolidating final dataset..."):
