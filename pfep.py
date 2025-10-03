@@ -259,22 +259,26 @@ def load_all_files(uploaded_files):
                     st.session_state['source_files_for_report'][key].append(df.copy())
                     
                     # --- MODIFICATION START ---
-                    # The original code used a single generic renaming function for all files.
-                    # This new code treats the warehouse location file as a special case
-                    # to make its column identification much more flexible.
+                    # This entire block has been updated for more robust column detection.
                     
-                    processed_df = df.copy() # Start with a copy of the original data
+                    processed_df = df.copy() 
 
                     if key == 'wh_location':
-                        # For the warehouse file, intelligently find and rename Part No. and Location columns
                         rename_map = {}
-                        # Define common alternative names for the required columns
-                        part_id_aliases = ['partno', 'part_no', 'part id', 'part number', 'item code']
-                        wh_loc_aliases = ['wh loc', 'wh_loc', 'warehouse location', 'location', 'storage location']
+                        # We have expanded the alias lists to catch more common column names.
+                        part_id_aliases = [
+                            'partno', 'part_no', 'part id', 'part number', 
+                            'item code', 'material number', 'material', 'sku'
+                        ]
+                        wh_loc_aliases = [
+                            'wh loc', 'wh_loc', 'warehouse location', 'location', 
+                            'storage location', 'bin', 'storage bin', 'sloc'
+                        ]
                         
                         found_part_id = False
                         found_wh_loc = False
 
+                        # This logic remains the same but will now work with the expanded lists.
                         for col in processed_df.columns:
                             col_lower = str(col).lower().strip()
                             if not found_part_id and col_lower in part_id_aliases:
@@ -286,15 +290,13 @@ def load_all_files(uploaded_files):
                         
                         processed_df.rename(columns=rename_map, inplace=True)
                         
-                        # Provide feedback to the user if columns were not found
                         if not found_part_id or not found_wh_loc:
                             st.warning(f"In the warehouse file '{f.name}', we could not find both a part number and a location column. "
                                        f"Please ensure the file contains columns like 'PARTNO' and 'WH LOC'. The data from this file may not be applied.")
                         else:
                              st.info(f"Successfully identified part number and location columns in '{f.name}'.")
 
-                    # For all other files, and to catch any other standard columns in the WH file,
-                    # we still run the generic renaming function.
+                    # Run the generic renaming for all other columns and file types.
                     processed_df = find_and_rename_columns(processed_df)
 
                     # --- MODIFICATION END ---
@@ -311,7 +313,7 @@ def load_all_files(uploaded_files):
 
                     file_types[key].append(processed_df)
     return file_types
-
+    
 def finalize_master_df(base_bom_df, all_files_dict):
     with st.spinner("Consolidating final dataset..."):
         final_df = base_bom_df
