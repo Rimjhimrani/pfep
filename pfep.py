@@ -597,8 +597,7 @@ class ComprehensiveInventoryProcessor:
 
     def run_warehouse_location_assignment(self):
         st.subheader("(F) Warehouse Location Assignment")
-    
-        # Step 1: Perform automated assignment into a temporary column
+        # Step 1: Perform automated assignment into a temporary column, as before.
         if 'family' not in self.data.columns:
             self.data['wh_loc_automated'] = 'HRR' # Default location
         else:
@@ -619,30 +618,47 @@ class ComprehensiveInventoryProcessor:
                 return BASE_WAREHOUSE_MAPPING.get(fam, "HRR") # Default from mapping
             self.data['wh_loc_automated'] = self.data.apply(get_automated_wh_loc, axis=1)
 
-        # Step 2: Merge automated locations with any locations from the source files.
-        # The 'wh_loc' column will exist if it was present in any of the uploaded files.
-        if 'wh_loc' in self.data.columns:
-            # Replace empty strings with NaN to ensure fillna works correctly
-            self.data['wh_loc'] = self.data['wh_loc'].replace('', np.nan)
-            # The file's value takes precedence. Fill any missing values in 'wh_loc'
-            # with the corresponding automated values.
-            self.data['wh_loc'] = self.data['wh_loc'].fillna(self.data['wh_loc_automated'])
-            st.info("Merged warehouse locations from source files with automated logic. Source file values took precedence where available.")
-        else:
-            # If no 'wh_loc' column came from the files, just use the automated one.
-            self.data['wh_loc'] = self.data['wh_loc_automated']
+        # --- MODIFICATION START: New, more robust merging logic ---
+    
+        # Step 2: Intelligently merge the automated locations with data from the user's file.
+        # We will now explicitly check for the column from your file and prioritize its contents.
 
-        # Step 3: Clean up the temporary column
-        self.data.drop(columns=['wh_loc_automated'], inplace=True)
+        user_column_found = None
+        # Look for either the standardized internal name or the original common name from your file.
+        if 'wh_loc' in self.data.columns:
+            user_column_found = 'wh_loc'
+        elif 'WH LOC' in self.data.columns: # Fallback to check for the exact header from your image
+            user_column_found = 'WH LOC'
+
+        if user_column_found:
+            st.info(f"Found existing warehouse data in column ('{user_column_found}') from your uploaded file. This data will be prioritized.")
         
-        # Step 4: Apply the location name expansion for consistency
+            # Ensure the column is named 'wh_loc' for consistency before proceeding.
+            if user_column_found != 'wh_loc':
+                self.data.rename(columns={user_column_found: 'wh_loc'}, inplace=True)
+            # To ensure the merge works correctly, replace common empty/placeholder values with a true NaN.
+            self.data['wh_loc'] = self.data['wh_loc'].replace(['', ' ', 'NA', 'N/A'], np.nan)
+        
+            # The data from your file is the base. We only use the automated logic to fill in
+            # cells that were genuinely blank in your original 'wh_loc' column.
+            self.data['wh_loc'] = self.data['wh_loc'].fillna(self.data['wh_loc_automated'])
+        
+        else:
+            # This block runs only if no 'WH LOC' or 'wh_loc' column was found in any uploaded file.
+            st.info("No existing warehouse location column found. Assigning locations using automated logic only.")
+            self.data['wh_loc'] = self.data['wh_loc_automated']
+        # Step 3: Clean up the temporary column used for automation.
+        if 'wh_loc_automated' in self.data.columns:
+            self.data.drop(columns=['wh_loc_automated'], inplace=True)
+        # --- MODIFICATION END ---
+            
+        # Step 4: Apply the location name expansion for consistency (no changes here).
         loc_expansion_map = {
             'HRR': 'High Rise Rack (HRR)', 'CRL': 'Carousal (CRL)', 'MEZ': 'Mezzanine (MEZ)',
             'CTR': 'Cantilever (CTR)', 'MRR': 'Mid Rise Rack (MRR)'
         }
         for short, long in loc_expansion_map.items():
             self.data['wh_loc'] = self.data['wh_loc'].astype(str).str.replace(short, long, regex=False)
-            
         st.success("✅ Warehouse location assignment complete.")
 
 # --- 4. UI AND REPORTING FUNCTIONS ---
