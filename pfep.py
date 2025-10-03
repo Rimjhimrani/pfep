@@ -33,7 +33,11 @@ BASE_TEMPLATE_COLUMNS = [
     'L-MM_Line', 'W-MM_Line', 'H-MM_Line', 'Volume_Line', 'CONTAINER / RACK','NO OF TRIPS/DAY', 'INVENTORY LINE SIDE'
 ]
 PFEP_COLUMN_MAP = { 'part_id': 'PARTNO', 'description': 'PART DESCRIPTION', 'net_daily_consumption': 'NET', 'unit_price': 'UNIT PRICE', 'vendor_code': 'VENDOR CODE', 'vendor_name': 'VENDOR NAME', 'city': 'CITY', 'state': 'STATE', 'country': 'COUNTRY', 'pincode': 'PINCODE', 'length': 'L-MM_Size', 'width': 'W-MM_Size', 'height': 'H-MM_Size', 'qty_per_pack': 'QTY/PACK_Sec', 'packing_factor': 'PACKING FACTOR (PF)', 'primary_packaging_factor': 'PRIMARY PACKING FACTOR', 'qty_per_pack_prim': 'QTY/PACK_Prim', 'one_way_returnable': 'ONE WAY/ RETURNABLE', 'primary_pack_type': 'PRIMARY PACK TYPE', 'supply_condition': 'SUPPLY CONDITION',  'primary_location_id': 'PRIMARY LOCATION ID','secondary_location_id': 'SECONDARY LOCATION ID','overflow_alloted': 'OVER FLOW TO BE ALLOTED','dock_number': 'DOCK NUMBER','stacking_factor': 'STACKING FACTOR'}
-INTERNAL_TO_PFEP_NEW_COLS = { 'family': 'FAMILY', 'part_classification': 'PART CLASSIFICATION', 'volume_m3': 'Volume (m^3)', 'size_classification': 'SIZE CLASSIFICATION', 'wh_loc': 'WH LOC', 'inventory_classification': 'INVENTORY CLASSIFICATION', 'prim_pack_lifespan': 'PRIM. PACK LIFESPAN', 'sec_pack_lifespan': 'SEC. PACK LIFESPAN'}
+# UPDATED: Added new columns for line-side storage automation
+INTERNAL_TO_PFEP_NEW_COLS = { 
+    'family': 'FAMILY', 'part_classification': 'PART CLASSIFICATION', 'volume_m3': 'Volume (m^3)', 'size_classification': 'SIZE CLASSIFICATION', 'wh_loc': 'WH LOC', 'inventory_classification': 'INVENTORY CLASSIFICATION', 'prim_pack_lifespan': 'PRIM. PACK LIFESPAN', 'sec_pack_lifespan': 'SEC. PACK LIFESPAN',
+    'container_line_side': 'CONTAINER LINE SIDE', 'l_mm_supply': 'L-MM_Supply', 'w_mm_supply': 'W-MM_Supply', 'h_mm_supply': 'H-MM_Supply', 'volume_supply': 'Volume_Supply', 'storage_line_side': 'STORAGE LINE SIDE', 'container_rack': 'CONTAINER / RACK'
+}
 FAMILY_KEYWORD_MAPPING = { "ADAPTOR": ["ADAPTOR", "ADAPTER"], "Beading": ["BEADING"], "Electrical": ["BATTERY", "HVPDU", "ELECTRICAL", "INVERTER", "SENSOR", "DC", "COMPRESSOR", "TMCS", "COOLING", "BRAKE SIGNAL", "VCU", "VEHICLE CONTROL", "EVCC", "EBS ECU", "ECU", "CONTROL UNIT", "SIGNAL", "TRANSMITTER", "TRACTION", "HV", "KWH", "EBS", "SWITCH", "HORN"], "Electronics": ["DISPLAY", "APC", "SCREEN", "MICROPHONE", "CAMERA", "SPEAKER", "DASHBOARD", "ELECTRONICS", "SSD", "WOODWARD", "FDAS", "BDC", "GEN-2", "SENSOR", "BUZZER"], "Wheels": ["WHEEL", "TYRE", "TIRE", "RIM"], "Harness": ["HARNESS", "CABLE"], "Mechanical": ["PUMP", "SHAFT", "LINK", "GEAR", "ARM"], "Hardware": ["NUT", "BOLT", "SCREW", "WASHER", "RIVET", "M5", "M22", "M12", "CLAMP", "CLIP", "CABLE TIE", "DIN", "ZFP"], "Bracket": ["BRACKET", "BRKT", "BKT", "BRCKT"], "ASSY": ["ASSY"], "Sticker": ["STICKER", "LOGO", "EMBLEM"], "Suspension": ["SUSPENSION"], "Tank": ["TANK"], "Tape": ["TAPE", "REFLECTOR", "COLOUR"], "Tool Kit": ["TOOL KIT"], "Valve": ["VALVE"], "Hose": ["HOSE"], "Insulation": ["INSULATION"], "Interior & Exterior": ["ROLLER", "FIRE", "HAMMER"], "L-angle": ["L-ANGLE"], "Lamp": ["LAMP"], "Lock": ["LOCK"], "Lubricants": ["GREASE", "LUBRICANT"], "Medical": ["MEDICAL", "FIRST AID"], "Mirror": ["MIRROR", "ORVM"], "Motor": ["MOTOR"], "Mounting": ["MOUNT", "MTG", "MNTG", "MOUNTED"], "Oil": ["OIL"], "Panel": ["PANEL"], "Pillar": ["PILLAR"], "Pipe": ["PIPE", "TUBE", "SUCTION", "TUBULAR"], "Plate": ["PLATE"], "Plywood": ["FLOORING", "PLYWOOD", "EPGC"], "Profile": ["PROFILE", "ALUMINIUM"], "Rail": ["RAIL"], "Rubber": ["RUBBER", "GROMMET", "MOULDING"], "Seal": ["SEAL"], "Seat": ["SEAT"], "ABS Cover": ["ABS COVER"], "AC": ["AC"], "ACP Sheet": ["ACP SHEET"], "Aluminium": ["ALUMINIUM", "ALUMINUM"], "AXLE": ["AXLE"], "Bush": ["BUSH"], "Chassis": ["CHASSIS"], "Dome": ["DOME"], "Door": ["DOOR"], "Filter": ["FILTER"], "Flap": ["FLAP"], "FRP": ["FRP", "FACIA"], "Glass": ["GLASS", "WINDSHIELD", "WINDSHILED"], "Handle": ["HANDLE", "HAND", "PLASTIC"], "HATCH": ["HATCH"], "HDF Board": ["HDF"] }
 CATEGORY_PRIORITY_FAMILIES = {"ACP Sheet", "ADAPTOR", "Bracket", "Bush", "Flap", "Handle", "Beading", "Lubricants", "Panel", "Pillar", "Rail", "Seal", "Sticker", "Valve"}
 BASE_WAREHOUSE_MAPPING = { "ABS Cover": "HRR", "ADAPTOR": "MEZ B-01(A)", "Beading": "HRR", "AXLE": "FLOOR", "Bush": "HRR", "Chassis": "FLOOR", "Dome": "MEZ C-02(B)", "Door": "MRR(C-01)", "Electrical": "HRR", "Filter": "CRL", "Flap": "MEZ C-02", "Insulation": "MEZ C-02(B)", "Interior & Exterior": "HRR", "L-angle": "MEZ B-01(A)", "Lamp": "CRL", "Lock": "CRL", "Lubricants": "HRR", "Medical": "HRR", "Mirror": "HRR", "Motor": "HRR", "Mounting": "HRR", "Oil": "HRR", "Panel": "MEZ C-02", "Pillar": "MEZ C-02", "Pipe": "HRR", "Plate": "HRR", "Profile": "HRR", "Rail": "CTR(C-01)", "Seal": "HRR", "Seat": "MRR(C-01)", "Sticker": "MEZ B-01(A)", "Suspension": "MRR(C-01)", "Tank": "HRR", "Tool Kit": "HRR", "Valve": "CRL", "Wheels": "HRR", "Hardware": "MEZ B-02(A)", "Glass": "MRR(C-01)", "Harness": "HRR", "Hose": "HRR", "Aluminium": "HRR", "ACP Sheet": "MEZ C-02(B)", "Handle": "HRR", "HATCH": "HRR", "HDF Board": "MRR(C-01)", "FRP": "CTR", "Others": "HRR" }
@@ -498,8 +502,77 @@ class ComprehensiveInventoryProcessor:
         self.data['size_classification'] = self.data.apply(classify_size, axis=1)
         st.success("✅ Automated size classification complete.")
 
+    # NEW FUNCTION: Automate Line Side Storage details
+    def run_line_side_storage_automation(self):
+        st.subheader("(C) Line Side Storage Automation")
+
+        # Ensure dimension columns are numeric, coercing errors to NaN
+        for col in ['length', 'width', 'height']:
+            if col not in self.data.columns:
+                self.data[col] = np.nan
+            else:
+                self.data[col] = pd.to_numeric(self.data[col], errors='coerce')
+        
+        # Calculate maximum dimension for classification
+        self.data['max_dim'] = self.data[['length', 'width', 'height']].max(axis=1, skipna=True)
+
+        # 1. Automate CONTAINER LINE SIDE
+        def get_container_line_side(max_dim):
+            if pd.isna(max_dim): return np.nan
+            if max_dim < 150: return 'Tote E'
+            elif max_dim < 250: return 'Bin A'
+            elif max_dim < 350: return 'Bin B'
+            elif max_dim < 550: return 'Bin C'
+            elif max_dim < 750: return 'Bin D'
+            else: return 'Engg. Trolley'
+        
+        self.data['container_line_side'] = self.data['max_dim'].apply(get_container_line_side)
+
+        # 2. Automate L-MM_Supply, W-MM_Supply, H-MM_Supply
+        supply_dims_map = {
+            'Tote E': {'L': 200, 'W': 150, 'H': 120},
+            'Bin A': {'L': 3316, 'W': 500, 'H': 2271},
+            'Bin B': {'L': 3329, 'W': 900, 'H': 200},
+            'Bin C': {'L': 3324, 'W': 900, 'H': 2621},
+            'Bin D': {'L': 4000, 'W': 1300, 'H': 2864},
+            'Engg. Trolley': {'L': 1800, 'W': 1200, 'H': 1500}
+        }
+        
+        self.data['l_mm_supply'] = self.data['container_line_side'].map(lambda x: supply_dims_map.get(x, {}).get('L'))
+        self.data['w_mm_supply'] = self.data['container_line_side'].map(lambda x: supply_dims_map.get(x, {}).get('W'))
+        self.data['h_mm_supply'] = self.data['container_line_side'].map(lambda x: supply_dims_map.get(x, {}).get('H'))
+
+        # 3. Calculate Volume_Supply
+        self.data['volume_supply'] = (self.data['l_mm_supply'] * self.data['w_mm_supply'] * self.data['h_mm_supply']) / 1_000_000_000 # Convert to m^3
+        
+        # 4. Automate STORAGE LINE SIDE
+        def get_storage_line_side(container_type):
+            if pd.isna(container_type): return np.nan
+            if container_type == 'Engg. Trolley': return 'Engg. Trolley'
+            elif container_type.startswith('Bin'): return 'Bin flow rack'
+            elif container_type == 'Tote E': return 'Tote Rack'
+            return np.nan
+        
+        self.data['storage_line_side'] = self.data['container_line_side'].apply(get_storage_line_side)
+
+        # 5. Automate CONTAINER / RACK
+        container_rack_map = {
+            'Tote E': 24,
+            'Bin A': 16,
+            'Bin B': 16,
+            'Bin C': 8,
+            'Bin D': 8,
+            'Engg. Trolley': 1 # Assuming 1 trolley per rack position
+        }
+        self.data['container_rack'] = self.data['container_line_side'].map(container_rack_map)
+
+        # Clean up temporary column
+        self.data.drop(columns=['max_dim'], errors='ignore', inplace=True)
+        st.success("✅ Line Side Storage automation complete.")
+
+
     def run_part_classification(self):
-        st.subheader("(C) Part Classification")
+        st.subheader("(D) Part Classification") # Adjusted subheader index
         if 'unit_price' not in self.data.columns:
             self.data['part_classification'] = np.nan
             st.warning("'unit_price' column not found. Skipping part classification.")
@@ -510,7 +583,7 @@ class ComprehensiveInventoryProcessor:
         st.success("✅ Percentage-based part classification complete.")
 
     def run_packaging_classification(self):
-        st.subheader("(D) Packaging Classification & Lifespan")
+        st.subheader("(E) Packaging Classification & Lifespan") # Adjusted subheader index
         if 'primary_pack_type' not in self.data.columns:
             self.data['one_way_returnable'] = np.nan
         else:
@@ -535,7 +608,7 @@ class ComprehensiveInventoryProcessor:
         st.success("✅ Package lifespan calculation complete.")
 
     def run_location_based_norms(self, pincode):
-        st.subheader(f"(E) Distance & Inventory Norms")
+        st.subheader(f"(F) Distance & Inventory Norms") # Adjusted subheader index
         
         # --- DEFENSIVE CHECK ---
         required_cols = ['pincode', 'part_classification', 'net_daily_consumption', 'unit_price']
@@ -601,7 +674,7 @@ class ComprehensiveInventoryProcessor:
         st.success(f"✅ Inventory norms calculated.")
 
     def run_warehouse_location_assignment(self):
-        st.subheader("(F) Warehouse Location Assignment")
+        st.subheader("(G) Warehouse Location Assignment") # Adjusted subheader index
     
         # --- STEP 1: Always generate the automated locations first ---
         # This logic remains unchanged. It creates a temporary 'wh_loc_automated' column.
@@ -676,7 +749,7 @@ class ComprehensiveInventoryProcessor:
 
 # --- 4. UI AND REPORTING FUNCTIONS ---
 def create_formatted_excel_output(df, vehicle_configs, assumed_families_df=None, source_files_dict=None):
-    st.subheader("(G) Generating Formatted Excel Report")
+    st.subheader("(H) Generating Formatted Excel Report") # Adjusted subheader index
     
     final_df = df.copy()
     rename_map = {**PFEP_COLUMN_MAP, **INTERNAL_TO_PFEP_NEW_COLS, 'TOTAL': 'TOTAL'}
@@ -813,7 +886,8 @@ def create_formatted_excel_output(df, vehicle_configs, assumed_families_df=None,
                 {'title': 'PRICE & CLASSIFICATION', 'start': 'UNIT PRICE', 'end': 'PART CLASSIFICATION', 'style': s_orange}, {'title': 'Size & Classification', 'start': 'L-MM_Size', 'end': 'SIZE CLASSIFICATION', 'style': s_orange},
                 {'title': 'VENDOR DETAILS', 'start': 'VENDOR CODE', 'end': 'PINCODE', 'style': s_blue}, {'title': 'PACKAGING DETAILS', 'start': 'PRIMARY PACK TYPE', 'end': 'ONE WAY/ RETURNABLE', 'style': s_orange},
                 {'title': 'INVENTORY NORM', 'start': 'DISTANCE CODE', 'end': 'NO OF SEC REQ. AS PER PF', 'style': s_blue}, {'title': 'WH STORAGE', 'start': 'WH LOC', 'end': 'STACKING FACTOR', 'style': s_orange},
-                {'title': 'SUPPLY SYSTEM', 'start': 'SUPPLY TYPE', 'end': 'SUPPLY CONDITION', 'style': s_blue}, {'title': 'LINE SIDE STORAGE', 'start': 'CONTAINER LINE SIDE', 'end': 'INVENTORY LINE SIDE', 'style': h_gray}
+                {'title': 'SUPPLY SYSTEM', 'start': 'SUPPLY TYPE', 'end': 'SUPPLY CONDITION', 'style': s_blue}, 
+                {'title': 'LINE SIDE STORAGE', 'start': 'CONTAINER LINE SIDE', 'end': 'INVENTORY LINE SIDE', 'style': h_gray} # This header covers the new automated columns
             ]
 
             for header in headers_info:
@@ -954,7 +1028,7 @@ def main():
         if uploaded_pfep and st.button("Validate and Proceed", type="primary"):
             with st.spinner("Validating PFEP file structure..."):
                 uploaded_pfep_bytes = uploaded_pfep.getvalue()
-                pfep_df_for_process = read_pfep_file(io.BytesIO(uploaded_pfep_bytes))
+                pfep_df_for_process = read_pfep_file(io.BytesIO(uploaded_pfap_bytes))
                 
                 try:
                     raw_pfep_df = pd.read_excel(io.BytesIO(uploaded_pfep_bytes))
@@ -1065,9 +1139,11 @@ def main():
             st.rerun()
 
     elif st.session_state.app_stage.startswith(("process_", "review_")):
+        # UPDATED: Added new processing step for line-side storage
         processing_steps = [
             {"process_stage": "process_family", "review_stage": "review_family", "method": "run_family_classification", "key": "family", "name": "Family Classification"},
             {"process_stage": "process_size", "review_stage": "review_size", "method": "run_size_classification", "key": "size_classification", "name": "Size Classification"},
+            {"process_stage": "process_line_side_storage", "review_stage": "review_line_side_storage", "method": "run_line_side_storage_automation", "key": "container_line_side", "name": "Line Side Storage Automation"}, # New Step
             {"process_stage": "process_part", "review_stage": "review_part", "method": "run_part_classification", "key": "part_classification", "name": "Part Classification"},
             {"process_stage": "process_packaging", "review_stage": "review_packaging", "method": "run_packaging_classification", "key": "one_way_returnable", "name": "Packaging Classification"},
             {"process_stage": "process_norms", "review_stage": "review_norms", "method": "run_location_based_norms", "key": "inventory_classification", "name": "Inventory Norms"},
