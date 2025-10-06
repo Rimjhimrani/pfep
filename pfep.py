@@ -525,7 +525,7 @@ class ComprehensiveInventoryProcessor:
             elif max_dim < 550: return 'Bin C'
             elif max_dim < 750: return 'Bin D'
             else: return 'Engg. Trolley'
-        
+
         self.data['container_line_side'] = self.data['max_dim'].apply(get_container_line_side)
 
         # 2. Automate L-MM_Supply, W-MM_Supply, H-MM_Supply
@@ -537,25 +537,45 @@ class ComprehensiveInventoryProcessor:
             'Bin D': {'L': 800, 'W': 600, 'H': 235},
             'Engg. Trolley': {'L': 1800, 'W': 1200, 'H': 1500}
         }
-        
+
         self.data['l_mm_supply'] = self.data['container_line_side'].map(lambda x: supply_dims_map.get(x, {}).get('L'))
         self.data['w_mm_supply'] = self.data['container_line_side'].map(lambda x: supply_dims_map.get(x, {}).get('W'))
         self.data['h_mm_supply'] = self.data['container_line_side'].map(lambda x: supply_dims_map.get(x, {}).get('H'))
 
         # 3. Calculate Volume_Supply
         self.data['volume_supply'] = (self.data['l_mm_supply'] * self.data['w_mm_supply'] * self.data['h_mm_supply']) / 1_000_000_000 # Convert to m^3
-        
-        # 4. Automate STORAGE LINE SIDE
+
+        # --- NEW LOGIC START ---
+        # 4. Automate L-MM_Line, W-MM_Line, H-MM_Line based on user requirements
+        line_dims_map = {
+            'Bin A': {'L': 3316, 'W': 500, 'H': 2271},
+            'Bin B': {'L': 3329, 'W': 900, 'H': 200},
+            'Bin C': {'L': 3324, 'W': 900, 'H': 2621},
+            'Bin D': {'L': 4000, 'W': 1300, 'H': 2864},
+            'Engg. Trolley': {'L': 1800, 'W': 1200, 'H': 1500}
+            # Tote is not in the map, so it will result in NaN, which is expected.
+        }
+
+        self.data['l_mm_line'] = self.data['container_line_side'].map(lambda x: line_dims_map.get(x, {}).get('L'))
+        self.data['w_mm_line'] = self.data['container_line_side'].map(lambda x: line_dims_map.get(x, {}).get('W'))
+        self.data['h_mm_line'] = self.data['container_line_side'].map(lambda x: line_dims_map.get(x, {}).get('H'))
+
+        # 5. Calculate Volume_Line
+        self.data['volume_line'] = (self.data['l_mm_line'] * self.data['w_mm_line'] * self.data['h_mm_line']) / 1_000_000_000 # Convert to m^3
+        # --- NEW LOGIC END ---
+
+
+        # 6. Automate STORAGE LINE SIDE
         def get_storage_line_side(container_type):
             if pd.isna(container_type): return np.nan
             if container_type == 'Engg. Trolley': return 'Engg. Trolley'
             elif container_type.startswith('Bin'): return 'Bin flow rack'
             elif container_type == 'Tote': return 'Bin flow rack'
             return np.nan
-        
+
         self.data['storage_line_side'] = self.data['container_line_side'].apply(get_storage_line_side)
 
-        # 5. Automate CONTAINER / RACK
+        # 7. Automate CONTAINER / RACK
         container_rack_map = {
             'Tote': 24,
             'Bin A': 16,
@@ -569,7 +589,7 @@ class ComprehensiveInventoryProcessor:
         # Clean up temporary column
         self.data.drop(columns=['max_dim'], errors='ignore', inplace=True)
         st.success("✅ Line Side Storage automation complete.")
-
+    # --- END OF MODIFIED FUNCTION ---
 
     def run_part_classification(self):
         st.subheader("(D) Part Classification") # Adjusted subheader index
