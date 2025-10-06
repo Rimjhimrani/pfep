@@ -674,8 +674,7 @@ class ComprehensiveInventoryProcessor:
         st.success(f"✅ Inventory norms calculated.")
 
     def run_warehouse_location_assignment(self):
-        st.subheader("(G) Warehouse Location Assignment") # Adjusted subheader index
-    
+        st.subheader("(F) Warehouse Location Assignment")
         # --- STEP 1: Always generate the automated locations first ---
         # This logic remains unchanged. It creates a temporary 'wh_loc_automated' column.
         if 'family' not in self.data.columns:
