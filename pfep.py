@@ -550,7 +550,7 @@ class ComprehensiveInventoryProcessor:
             if pd.isna(container_type): return np.nan
             if container_type == 'Engg. Trolley': return 'Engg. Trolley'
             elif container_type.startswith('Bin'): return 'Bin flow rack'
-            elif container_type == 'Tote E': return 'Tote Rack'
+            elif container_type == 'Tote': return 'Tote Rack'
             return np.nan
         
         self.data['storage_line_side'] = self.data['container_line_side'].apply(get_storage_line_side)
