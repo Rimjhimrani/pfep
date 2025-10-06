@@ -531,10 +531,10 @@ class ComprehensiveInventoryProcessor:
         # 2. Automate L-MM_Supply, W-MM_Supply, H-MM_Supply
         supply_dims_map = {
             'Tote': {'L': 200, 'W': 150, 'H': 120},
-            'Bin A': {'L': 3316, 'W': 500, 'H': 2271},
-            'Bin B': {'L': 3329, 'W': 900, 'H': 200},
-            'Bin C': {'L': 3324, 'W': 900, 'H': 2621},
-            'Bin D': {'L': 4000, 'W': 1300, 'H': 2864},
+            'Bin A': {'L': 300, 'W': 200, 'H': 150},
+            'Bin B': {'L': 400, 'W': 300, 'H': 160},
+            'Bin C': {'L': 600, 'W': 400, 'H': 180},
+            'Bin D': {'L': 800, 'W': 600, 'H': 235},
             'Engg. Trolley': {'L': 1800, 'W': 1200, 'H': 1500}
         }
         
