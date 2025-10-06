@@ -519,7 +519,7 @@ class ComprehensiveInventoryProcessor:
         # 1. Automate CONTAINER LINE SIDE
         def get_container_line_side(max_dim):
             if pd.isna(max_dim): return np.nan
-            if max_dim < 150: return 'Tote E'
+            if max_dim < 150: return 'Tote'
             elif max_dim < 250: return 'Bin A'
             elif max_dim < 350: return 'Bin B'
             elif max_dim < 550: return 'Bin C'
@@ -530,7 +530,7 @@ class ComprehensiveInventoryProcessor:
 
         # 2. Automate L-MM_Supply, W-MM_Supply, H-MM_Supply
         supply_dims_map = {
-            'Tote E': {'L': 200, 'W': 150, 'H': 120},
+            'Tote': {'L': 200, 'W': 150, 'H': 120},
             'Bin A': {'L': 3316, 'W': 500, 'H': 2271},
             'Bin B': {'L': 3329, 'W': 900, 'H': 200},
             'Bin C': {'L': 3324, 'W': 900, 'H': 2621},
@@ -557,7 +557,7 @@ class ComprehensiveInventoryProcessor:
 
         # 5. Automate CONTAINER / RACK
         container_rack_map = {
-            'Tote E': 24,
+            'Tote': 24,
             'Bin A': 16,
             'Bin B': 16,
             'Bin C': 8,
