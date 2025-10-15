@@ -491,13 +491,10 @@ class ComprehensiveInventoryProcessor:
         self.data['volume_m3'] = (self.data['length'] * self.data['width'] * self.data['height']) / 1_000_000_000
 
         def classify_size(row):
-            if pd.isna(row['volume_m3']):
-                return np.nan
             vol = row['volume_m3']
-            dims = [d for d in [row['length'], row['width'], row['height']] if pd.notna(d)]
-
-            # XL if volume > 1.5 OR any dimension >= 1200
-            if vol > 1.5 or any(d >= 1200 for d in dims):
+            if pd.isna(vol):
+                return np.nan
+            if vol > 1.5:
                 return 'XL'
             elif 0.5 < vol <= 1.5:
                 return 'L'
