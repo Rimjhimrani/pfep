@@ -491,24 +491,19 @@ class ComprehensiveInventoryProcessor:
         self.data['volume_m3'] = (self.data['length'] * self.data['width'] * self.data['height']) / 1_000_000_000
 
         def classify_size(row):
-            vol = row['volume_m3']
-            if pd.isna(vol):
-                return np.nan
-            if vol > 1.5:
-                return 'XL'
-            elif 0.5 < vol <= 1.5:
-                return 'L'
-            elif 0.05 < vol <= 0.5:
-                return 'M'
-            else:
-                return 'S'
-        
-        # --- FIX 1: THIS LINE WAS MISSING ---
-        # This line applies the function above to create the required column.
+            if pd.isna(row['volume_m3']): return np.nan
+            dims = [d for d in [row['length'], row['width'], row['height']] if pd.notna(d)]
+            if not dims: return np.nan
+
+            max_dim = max(dims)
+            if row['volume_m3'] > 1.5 or max_dim > 1200: return 'XL'
+            if 0.5 < row['volume_m3'] <= 1.5 or 750 < max_dim <= 1200: return 'L'
+            if 0.05 < row['volume_m3'] <= 0.5 or 150 < max_dim <= 750: return 'M'
+            return 'S'
         self.data['size_classification'] = self.data.apply(classify_size, axis=1)
-                
-    # --- FIX 2: THIS ENTIRE METHOD WAS INDENTED INCORRECTLY ---
-    # It has been moved to be a separate method of the class, not nested inside the one above.
+        st.success("✅ Automated size classification complete.")
+
+    # --- MODIFIED FUNCTION ---
     def run_line_side_storage_automation(self):
         st.subheader("(C) Line Side Storage Automation")
 
@@ -595,6 +590,8 @@ class ComprehensiveInventoryProcessor:
         # Clean up temporary column
         self.data.drop(columns=['max_dim'], errors='ignore', inplace=True)
         st.success("✅ Line Side Storage automation complete.")
+    # --- END OF MODIFIED FUNCTION ---
+
     def run_part_classification(self):
         st.subheader("(D) Part Classification") # Adjusted subheader index
         if 'unit_price' not in self.data.columns:
