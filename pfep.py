@@ -505,8 +505,13 @@ class ComprehensiveInventoryProcessor:
                 return 'M'
             else:
                 return 'S'
+        
+        # --- FIX 1: THIS LINE WAS MISSING ---
+        # This line applies the function above to create the required column.
+        self.data['size_classification'] = self.data.apply(classify_size, axis=1)
                 
-    # --- MODIFIED FUNCTION ---
+    # --- FIX 2: THIS ENTIRE METHOD WAS INDENTED INCORRECTLY ---
+    # It has been moved to be a separate method of the class, not nested inside the one above.
     def run_line_side_storage_automation(self):
         st.subheader("(C) Line Side Storage Automation")
 
@@ -593,8 +598,6 @@ class ComprehensiveInventoryProcessor:
         # Clean up temporary column
         self.data.drop(columns=['max_dim'], errors='ignore', inplace=True)
         st.success("✅ Line Side Storage automation complete.")
-    # --- END OF MODIFIED FUNCTION ---
-
     def run_part_classification(self):
         st.subheader("(D) Part Classification") # Adjusted subheader index
         if 'unit_price' not in self.data.columns:
