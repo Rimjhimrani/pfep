@@ -493,25 +493,19 @@ class ComprehensiveInventoryProcessor:
         def classify_size(row):
             if pd.isna(row['volume_m3']):
                 return np.nan
-            dims = [d for d in [row['length'], row['width'], row['height']] if pd.notna(d)]
-            if not dims:
-                return np.nan
-            max_dim = max(dims)
             vol = row['volume_m3']
+            dims = [d for d in [row['length'], row['width'], row['height']] if pd.notna(d)]
 
-            # Priority order: XL > L > M > S
-            if max_dim > 1200 or vol > 1.5:
+            # XL if volume > 1.5 OR any dimension >= 1200
+            if vol > 1.5 or any(d >= 1200 for d in dims):
                 return 'XL'
-            elif 750 < max_dim <= 1200 or 0.5 < vol <= 1.5:
+            elif 0.5 < vol <= 1.5:
                 return 'L'
-            elif 150 < max_dim <= 750 or 0.05 < vol <= 0.5:
+            elif 0.05 < vol <= 0.5:
                 return 'M'
             else:
                 return 'S'
                 
-        self.data['size_classification'] = self.data.apply(classify_size, axis=1)
-        st.success("✅ Automated size classification complete.")
-
     # --- MODIFIED FUNCTION ---
     def run_line_side_storage_automation(self):
         st.subheader("(C) Line Side Storage Automation")
